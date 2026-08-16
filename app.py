@@ -1,39 +1,3 @@
-=============================================================================
-SALES PERFORMANCE COMMAND CENTER
-Apple-inspired "Liquid Glass" executive business command center.
-=============================================================================
- 
-Architecture
-------------
-  Sections 1-13  ANALYTICAL CORE  (unchanged business logic)
-                 Workbook contract, FINAL-sheet parsing, segment/channel
-                 classification, the base grid, Scenarios 1-9, the revenue
-                 engine, every table builder and the Excel exports.
- 
-  Sections 14-24 EXPERIENCE LAYER  (rebuilt)
-                 Liquid-glass design system, reusable glass components, a
-                 shared Plotly template and the executive screen flow.
- 
-Screen flow
------------
-  01 Executive header
-  02 Current Performance Metrics - FINAL   (AUM | Gross Sales | Net Sales)
-  03 Business drivers                      (asset class | channel)
-  04 Current run rate and target gap       (analysis scope)
-  05 Scenario planning                     (Scenario 1-9 navigator)
-  06 Selected scenario hero and outcome
-  07 Scenario trajectory
-  08 Revenue impact
-  09 Channel / asset / segment drivers
-  10 Detailed analytical tables
-  11 FINAL workbook reference
-  12 Export
- 
-Requirements: streamlit, pandas, numpy, openpyxl, plotly (optional but
-recommended - the app degrades gracefully to native charts without it).
-Run with:  streamlit run app.py
-"""
- 
 from __future__ import annotations
  
 import inspect
