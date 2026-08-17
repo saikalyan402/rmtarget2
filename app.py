@@ -179,21 +179,8 @@ SCENARIOS: Dict[int, Dict[str, str]] = {
         ),
         "milestone": "Portfolio March ambition optimised across nine channels",
     },
-    10: {
-        "label": "Scenario 10 · Asset × Channel Target Simulator",
-        "name": "Asset × Channel Target Simulator",
-        "short": "Asset × Channel",
-        "kind": "asset_channel_target",
-        "thesis": "Edit Retail, DHNI and VRM inside Equity, Debt and Liquid and let the portfolio roll up live.",
-        "explanation": (
-            "Set independent March achievement percentages for Retail, DHNI and VRM inside each "
-            "asset class. Every editable target is floored at that cell's current March projection, "
-            "and Equity, Debt, Liquid and Overall recalculate automatically from the edited channel mix."
-        ),
-        "milestone": "March 2027 · editable Asset × Channel achievement targets",
-    },
 }
-SCENARIO_ORDER: List[int] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+SCENARIO_ORDER: List[int] = [1, 2, 3, 4, 5, 6, 7, 8, 9]
  
 # Scenario 8/9 channel planning universe.  Each channel has independent
 # momentum, January 2027 target and March 2027 target controls.
@@ -1430,7 +1417,7 @@ def scenario_multipliers(
     params = params or {}
     multipliers: Dict[Tuple[str, str, str], float] = {}
  
-    if scenario_id in (1, 7, 8, 9, 10):
+    if scenario_id in (1, 7):
         return multipliers
  
     if scenario_id == 3:
@@ -1874,239 +1861,6 @@ def calculate_scenario_9_grid(grid: pd.DataFrame, params: Dict[str, Any]) -> pd.
     return pd.DataFrame(rows)
  
  
-
-# =============================================================================
-# 7B. SCENARIO 10 - ASSET × CHANNEL TARGET SIMULATOR
-# =============================================================================
-
-def _scenario10_current_target_map(
-    grid: pd.DataFrame,
-) -> Dict[str, Dict[str, Dict[str, float]]]:
-    """
-    Current March projection % for each Sales × Asset × Vertical combination.
-
-    These values are the hard minimum for Scenario 10. For example, if
-    Net Sales Equity/Retail is currently projected at 85%, that editable
-    target cannot be moved below 85%.
-    """
-    targets: Dict[str, Dict[str, Dict[str, float]]] = {
-        sales: {asset: {} for asset in ASSETS}
-        for sales in SALES_TYPES
-    }
-    for sales in SALES_TYPES:
-        for asset in ASSETS:
-            for vertical in VERTICALS:
-                stats = summarize_current(
-                    grid,
-                    sales=sales,
-                    asset=asset,
-                    vertical=vertical,
-                )
-                targets[sales][asset][vertical] = _z(
-                    stats.get("current_march_pct")
-                )
-    return targets
-
-
-def _scenario10_target_for(
-    params: Dict[str, Any],
-    sales: str,
-    asset: str,
-    vertical: str,
-    current_floor: float,
-) -> float:
-    """Read one edited target and enforce the current projection as its floor."""
-    configured = (
-        params.get("asset_vertical_targets", {})
-        .get(sales, {})
-        .get(asset, {})
-        .get(vertical, current_floor)
-    )
-    value = _num(configured)
-    if value is None:
-        value = current_floor
-    return max(float(value), float(current_floor))
-
-
-def calculate_scenario_10_grid(
-    grid: pd.DataFrame,
-    params: Dict[str, Any],
-) -> pd.DataFrame:
-    """
-    Apply independent March targets to Retail / DHNI / VRM within each asset.
-
-    A single target percentage is applied to all fine-grain rows belonging to
-    the same Vertical × Asset × Sales combination. When those rows aggregate,
-    the channel target is preserved exactly; the resulting channel amounts then
-    automatically roll up to Equity, Debt, Liquid and Overall.
-    """
-    floors = _scenario10_current_target_map(grid)
-    rows: List[Dict[str, Any]] = []
-
-    for row in grid.to_dict("records"):
-        sales = row["Sales"]
-        asset = row["Asset"]
-        vertical = row["Vertical"]
-
-        floor_pct = floors.get(sales, {}).get(asset, {}).get(vertical, 0.0)
-        target_pct = _scenario10_target_for(
-            params,
-            sales,
-            asset,
-            vertical,
-            floor_pct,
-        )
-
-        cell = compute_cell(
-            row["fy_target"],
-            row["ytd_target"],
-            row["ytd_ach"],
-            kind="march_target",
-            multiplier=target_pct,
-        )
-        cell.update({
-            "Vertical": vertical,
-            "Segment": row["Segment"],
-            "Channel": row.get("Channel", "Unclassified"),
-            "Sales": sales,
-            "Asset": asset,
-            "scenario_10_target_pct": target_pct,
-            "scenario_10_current_floor_pct": floor_pct,
-        })
-        rows.append(cell)
-
-    return pd.DataFrame(rows)
-
-
-def build_scenario_10_asset_summary(
-    model: "ScenarioModel",
-    sales: str,
-) -> Tuple[pd.DataFrame, Dict[str, str]]:
-    """Automatic Equity / Debt / Liquid roll-up after the channel edits."""
-    rows: List[Dict[str, Any]] = []
-
-    for asset in ASSETS:
-        cell = model.cell(sales, asset=asset)
-        current_pct = _num(cell.get("current_march_pct"))
-        scenario_pct = _num(cell.get("march_pct"))
-
-        change_pts = (
-            None
-            if current_pct is None or scenario_pct is None
-            else scenario_pct - current_pct
-        )
-        relative_change = (
-            None
-            if current_pct is None or current_pct <= 0 or scenario_pct is None
-            else scenario_pct / current_pct - 1.0
-        )
-
-        rows.append({
-            "Asset Class": asset,
-            "FY Target": cell.get("fy_target"),
-            "Current March %": current_pct,
-            "Scenario March %": scenario_pct,
-            "Change vs Current": change_pts,
-            "Relative Change %": relative_change,
-            "Current Run Rate": cell.get("current_rr"),
-            "Required Scenario Run Rate": cell.get("scen_rr"),
-            "Run Rate Change %": cell.get("rr_change_pct"),
-            "Incremental Sales": cell.get("incremental_sales"),
-        })
-
-    formats = {
-        "Asset Class": "txt",
-        "FY Target": "cr",
-        "Current March %": "pct",
-        "Scenario March %": "pct",
-        "Change vs Current": "pts",
-        "Relative Change %": "pct_signed",
-        "Current Run Rate": "cr",
-        "Required Scenario Run Rate": "cr",
-        "Run Rate Change %": "pct_signed",
-        "Incremental Sales": "cr_signed",
-    }
-    return pd.DataFrame(rows), formats
-
-
-def build_scenario_10_channel_detail(
-    model: "ScenarioModel",
-    sales: str,
-) -> Tuple[pd.DataFrame, Dict[str, str]]:
-    """Retail / DHNI / VRM details inside Equity / Debt / Liquid."""
-    rows: List[Dict[str, Any]] = []
-
-    for asset in ASSETS:
-        for vertical in VERTICALS:
-            baseline = model.baseline(
-                sales,
-                asset=asset,
-                vertical=vertical,
-            )
-            if (
-                _z(baseline.get("fy_target")) == 0
-                and _z(baseline.get("ytd_ach")) == 0
-            ):
-                continue
-
-            cell = model.cell(
-                sales,
-                asset=asset,
-                vertical=vertical,
-            )
-            current_pct = _num(cell.get("current_march_pct"))
-            scenario_pct = _num(cell.get("march_pct"))
-
-            change_pts = (
-                None
-                if current_pct is None or scenario_pct is None
-                else scenario_pct - current_pct
-            )
-            relative_change = (
-                None
-                if current_pct is None or current_pct <= 0 or scenario_pct is None
-                else scenario_pct / current_pct - 1.0
-            )
-
-            edited_target = (
-                model.params.get("asset_vertical_targets", {})
-                .get(sales, {})
-                .get(asset, {})
-                .get(vertical, current_pct)
-            )
-
-            rows.append({
-                "Asset Class": asset,
-                "Channel": vertical,
-                "FY Target": cell.get("fy_target"),
-                "Current March %": current_pct,
-                "Edited March Target %": edited_target,
-                "Scenario March %": scenario_pct,
-                "Change vs Current": change_pts,
-                "Relative Change %": relative_change,
-                "Current Run Rate": cell.get("current_rr"),
-                "Required Scenario Run Rate": cell.get("scen_rr"),
-                "Run Rate Change %": cell.get("rr_change_pct"),
-                "Incremental Sales": cell.get("incremental_sales"),
-            })
-
-    formats = {
-        "Asset Class": "txt",
-        "Channel": "txt",
-        "FY Target": "cr",
-        "Current March %": "pct",
-        "Edited March Target %": "pct",
-        "Scenario March %": "pct",
-        "Change vs Current": "pts",
-        "Relative Change %": "pct_signed",
-        "Current Run Rate": "cr",
-        "Required Scenario Run Rate": "cr",
-        "Run Rate Change %": "pct_signed",
-        "Incremental Sales": "cr_signed",
-    }
-    return pd.DataFrame(rows), formats
-
-
 # =============================================================================
 # 8. SCENARIO MODEL - ONE INTERFACE FOR EVERY VIEW
 # =============================================================================
@@ -2127,8 +1881,6 @@ class ScenarioModel:
             self.scenario_grid = calculate_scenario_8_grid(grid, params)
         elif scenario_id == 9:
             self.scenario_grid = calculate_scenario_9_grid(grid, params)
-        elif scenario_id == 10:
-            self.scenario_grid = calculate_scenario_10_grid(grid, params)
         else:
             self.scenario_grid = SCENARIO_FUNCTIONS[scenario_id](grid, params)
  
@@ -2841,16 +2593,6 @@ def build_scenario_guide(model: ScenarioModel, basis: str) -> pd.DataFrame:
             ),
             "Milestone": "", "Selected": "",
         })
-    if model.scenario_id == 10:
-        rows.append({
-            "Scenario": "Scenario 10 settings",
-            "Description": (
-                "Retail, DHNI and VRM March achievement targets are independently editable inside "
-                "Equity, Debt and Liquid. Each target is floored at its current March projection."
-            ),
-            "Milestone": "March 2027",
-            "Selected": "",
-        })
     return pd.DataFrame(rows)
  
  
@@ -2866,7 +2608,6 @@ def scenario_default_params(scenario_id: int) -> Dict[str, Any]:
         "channel_mar_target": dict(S8_DEFAULT_MAR_TARGET),
         "optimizer_target": 1.20,
         "channel_mapping": {},
-        "asset_vertical_targets": {},
     }
     if scenario_id == 1:
         params["runrate_uplift"] = S1_RUNRATE_UPLIFT
@@ -2892,7 +2633,7 @@ def build_all_scenario_matrix(
     sales_key: str,
     asset: str = "All",
 ) -> Tuple[pd.DataFrame, Dict[str, str]]:
-    """Calculate Scenarios 1-10 on the same selected cut."""
+    """Calculate Scenarios 1-9 on the same selected cut."""
     rows: List[Dict[str, Any]] = []
     formats = {
         "Scenario": "txt", "Strategy": "txt", "FY Target": "cr",
@@ -2984,14 +2725,6 @@ def make_export_excel(model: ScenarioModel, basis: str) -> bytes:
         channel_frame = build_channel_scenario_analysis(model, basis)[0]
         if not channel_frame.empty:
             sheets.append((f"Scenario {model.scenario_id} Channels", channel_frame))
-
-
-    if model.scenario_id == 10:
-        for sales in SALES_TYPES:
-            asset_summary = build_scenario_10_asset_summary(model, sales)[0]
-            channel_detail = build_scenario_10_channel_detail(model, sales)[0]
-            sheets.append((f"S10 {sales} Asset Rollup", asset_summary))
-            sheets.append((f"S10 {sales} Asset Channel", channel_detail))
  
     all_scenarios = build_all_scenario_matrix(model.grid, model.scenario_id, model.params, basis)[0]
     if not all_scenarios.empty:
@@ -5014,100 +4747,7 @@ def _pct_input(label: str, default_fraction: float, key: str, min_value: float =
     return float(value) / 100.0
 
 
-
-def _scenario10_pct_input(
-    label: str,
-    current_fraction: float,
-    default_fraction: float,
-    key: str,
-) -> float:
-    """
-    Scenario-10 percentage editor.
-
-    The field cannot go below the current March projection. No upper cap is
-    imposed, so management can raise the ambition as high as required.
-    """
-    current_fraction = float(current_fraction)
-    default_fraction = max(float(default_fraction), current_fraction)
-
-    minimum_pct = current_fraction * 100.0
-    default_pct = default_fraction * 100.0
-
-    if key in st.session_state:
-        try:
-            if float(st.session_state[key]) < minimum_pct:
-                st.session_state[key] = minimum_pct
-        except (TypeError, ValueError):
-            st.session_state[key] = default_pct
-
-    value = st.number_input(
-        label,
-        min_value=float(minimum_pct),
-        value=float(default_pct),
-        step=1.0,
-        format="%.1f",
-        key=key,
-        help=(
-            f"Minimum = current March projection ({minimum_pct:,.1f}%). "
-            "No maximum is imposed."
-        ),
-    )
-    return float(value) / 100.0
-
-
-def _scenario10_control_rollup(
-    grid: pd.DataFrame,
-    sales: str,
-    targets: Dict[str, Dict[str, float]],
-) -> List[Dict[str, Any]]:
-    """Weighted Equity / Debt / Liquid preview from the channel inputs."""
-    cards: List[Dict[str, Any]] = []
-
-    for asset in ASSETS:
-        base = summarize_current(grid, sales=sales, asset=asset)
-        current_pct = _num(base.get("current_march_pct"))
-
-        fy_total = 0.0
-        edited_amount = 0.0
-
-        for vertical in VERTICALS:
-            stats = summarize_current(
-                grid,
-                sales=sales,
-                asset=asset,
-                vertical=vertical,
-            )
-            fy_target = _z(stats.get("fy_target"))
-            target_pct = targets.get(asset, {}).get(
-                vertical,
-                _z(stats.get("current_march_pct")),
-            )
-            fy_total += fy_target
-            edited_amount += fy_target * target_pct
-
-        edited_pct = edited_amount / fy_total if fy_total else 0.0
-        delta = (
-            None
-            if current_pct is None
-            else edited_pct - current_pct
-        )
-
-        cards.append({
-            "label": asset,
-            "value": fmt_pct(edited_pct),
-            "delta": fmt_pts(delta),
-            "tone": _tone_for(delta),
-            "secondary": f"current projection {fmt_pct(current_pct)}",
-        })
-
-    return cards
-
-
-def render_scenario_controls(
-    scenario_id: int,
-    base_params: Dict[str, Any],
-    grid: Optional[pd.DataFrame] = None,
-) -> Dict[str, Any]:
+def render_scenario_controls(scenario_id: int, base_params: Dict[str, Any]) -> Dict[str, Any]:
     """Editable percentage assumptions for every scenario."""
     params = dict(base_params)
 
@@ -5243,109 +4883,6 @@ def render_scenario_controls(
             params["channel_mar_target"] = {c: ambition for c in CHANNELS}
             params["channel_jan_target"] = {c: jan_target for c in CHANNELS}
 
-        elif scenario_id == 10:
-            if grid is None or grid.empty:
-                glass_note(
-                    "Scenario 10 needs Retail, DHNI and VRM calculation data.",
-                    tone="warn",
-                )
-                params["asset_vertical_targets"] = {}
-            else:
-                st.markdown(
-                    "<div class='metric-secondary'>"
-                    "Edit March achievement % by Asset Class × Channel. "
-                    "Every field starts at — and cannot go below — the current March projection. "
-                    "Retail / DHNI / VRM edits automatically roll up into Equity / Debt / Liquid."
-                    "</div>",
-                    unsafe_allow_html=True,
-                )
-
-                existing = dict(base_params.get("asset_vertical_targets", {}))
-                edited_targets: Dict[str, Dict[str, Dict[str, float]]] = {}
-
-                sales_tabs = st.tabs(["Net Sales", "Gross Sales"])
-                for sales_tab, sales in zip(sales_tabs, ("NS", "GS")):
-                    with sales_tab:
-                        sales_targets: Dict[str, Dict[str, float]] = {}
-
-                        for asset in ASSETS:
-                            asset_targets: Dict[str, float] = {}
-                            current_asset = summarize_current(
-                                grid,
-                                sales=sales,
-                                asset=asset,
-                            )
-
-                            st.markdown(
-                                f"<div class='metric-label' style='margin-top:14px'>"
-                                f"{escape(asset)} · current March "
-                                f"{escape(fmt_pct(current_asset.get('current_march_pct')))}</div>",
-                                unsafe_allow_html=True,
-                            )
-
-                            columns = st.columns(3)
-                            for idx, vertical in enumerate(VERTICALS):
-                                stats = summarize_current(
-                                    grid,
-                                    sales=sales,
-                                    asset=asset,
-                                    vertical=vertical,
-                                )
-                                current_floor = _z(stats.get("current_march_pct"))
-                                fy_target = _z(stats.get("fy_target"))
-                                saved = (
-                                    existing.get(sales, {})
-                                    .get(asset, {})
-                                    .get(vertical, current_floor)
-                                )
-                                saved_value = _num(saved)
-                                saved_value = current_floor if saved_value is None else saved_value
-                                saved_value = max(saved_value, current_floor)
-
-                                with columns[idx]:
-                                    if fy_target <= 0:
-                                        st.markdown(
-                                            "<div class='glass-note'>"
-                                            f"<b>{escape(vertical)}</b><br>"
-                                            "No FY target in the current scope."
-                                            "</div>",
-                                            unsafe_allow_html=True,
-                                        )
-                                        asset_targets[vertical] = current_floor
-                                    else:
-                                        key = (
-                                            f"s10_{sales}_{asset}_{vertical}"
-                                            .lower()
-                                            .replace(" ", "_")
-                                            .replace("×", "x")
-                                        )
-                                        asset_targets[vertical] = _scenario10_pct_input(
-                                            f"{vertical} March target %",
-                                            current_floor,
-                                            saved_value,
-                                            key,
-                                        )
-
-                            sales_targets[asset] = asset_targets
-
-                        edited_targets[sales] = sales_targets
-
-                        st.markdown(
-                            "<div class='metric-secondary' style='margin-top:14px'>"
-                            "Live Asset-Class roll-up from the channel targets"
-                            "</div>",
-                            unsafe_allow_html=True,
-                        )
-                        kpi_strip(
-                            _scenario10_control_rollup(
-                                grid,
-                                sales,
-                                sales_targets,
-                            )
-                        )
-
-                params["asset_vertical_targets"] = edited_targets
-
         glass_note(
             "All percentages in the selected scenario are editable. Changing a value recalculates "
             "required run rates, expected sales and revenue immediately."
@@ -5378,8 +4915,6 @@ def _active_scenario_assumption_text(model: ScenarioModel) -> str:
     if sid == 9:
         jan = next(iter(p.get('channel_jan_target', {}).values()), None)
         return f"January milestone: {fmt_pct(jan)} · March ambition: {fmt_pct(p.get('optimizer_target'))} · Leakage: {fmt_pct(p.get('leakage'))}"
-    if sid == 10:
-        return "Retail / DHNI / VRM editable inside Equity / Debt / Liquid · minimum = current March projection"
     return ""
 
 
@@ -5461,20 +4996,6 @@ def _active_scenario_copy(model: ScenarioModel) -> Dict[str, str]:
             "name": f"Channel Mix Optimiser · Mar {mar_text}",
             "thesis": f"Find the minimum channel growth needed for a {mar_text} March ambition while protecting a {jan_text} January milestone.",
             "explanation": f"Optimise the channel growth trajectory to achieve {mar_text} by March, preserve the {jan_text} January milestone, and allow for {leakage} February–March leakage.",
-        }
-    if sid == 10:
-        return {
-            "name": "Asset × Channel Target Simulator",
-            "thesis": (
-                "Edit Retail, DHNI and VRM inside Equity, Debt and Liquid and watch "
-                "the Asset-Class and Overall outcomes update immediately."
-            ),
-            "explanation": (
-                "Every Retail / DHNI / VRM March target is independently editable for Equity, Debt "
-                "and Liquid. The minimum is the current March projection for that exact cell; higher "
-                "targets recalculate required run rate, incremental sales, asset totals, overall "
-                "achievement and Net Sales revenue automatically."
-            ),
         }
     return {
         "name": model.meta.get("name", "Scenario"),
@@ -5809,7 +5330,7 @@ def render_all_scenarios(
     asset: str,
 ) -> None:
     """Every scenario evaluated on the selected scope, table only."""
-    with st.expander("Compare all ten scenarios on this scope", expanded=False):
+    with st.expander("Compare all nine scenarios on this scope", expanded=False):
         frame, formats = build_all_scenario_matrix(grid, scenario_id, params, basis, asset)
         if frame.empty:
             glass_note("No scenario output is available for this scope.")
@@ -5820,7 +5341,7 @@ def render_all_scenarios(
             css_class="scenario-table",
         )
         glass_note(
-            "Scenarios 1–10 are calculated on the same scope and sales basis. The selected "
+            "Scenarios 1–9 are calculated on the same scope and sales basis. The selected "
             "scenario uses the live assumptions above; the others use their configured defaults."
         )
 
@@ -5962,66 +5483,6 @@ def render_channel_optimizer(model: ScenarioModel, basis: str) -> None:
         "or above the requirement solve to zero additional growth."
     )
 
-
-def render_asset_channel_target_simulator(model: ScenarioModel) -> None:
-    """Scenario 10 · Asset × Channel live driver view."""
-    glass_callout(
-        "<b>Scenario 10 roll-up:</b> Retail, DHNI and VRM are the editable building blocks. "
-        "Their FY-target-weighted outcomes automatically become the Equity, Debt and Liquid totals. "
-        "The change columns show exactly how much each edit moves the current projection."
-    )
-
-    sales_tabs = st.tabs(["Net Sales", "Gross Sales"])
-    for tab, sales in zip(sales_tabs, ("NS", "GS")):
-        with tab:
-            asset_frame, asset_formats = build_scenario_10_asset_summary(
-                model,
-                sales,
-            )
-
-            if not asset_frame.empty:
-                cards: List[Dict[str, Any]] = []
-                for _, row in asset_frame.iterrows():
-                    delta = _num(row.get("Change vs Current"))
-                    cards.append({
-                        "label": str(row.get("Asset Class")),
-                        "value": fmt_pct(row.get("Scenario March %")),
-                        "delta": fmt_pts(delta),
-                        "tone": _tone_for(delta),
-                        "secondary": (
-                            f"current {fmt_pct(row.get('Current March %'))} · "
-                            f"run-rate change {fmt_pct_signed(row.get('Run Rate Change %'))}"
-                        ),
-                    })
-                kpi_strip(cards)
-
-            st.markdown(
-                "<div class='metric-label' style='margin-top:16px'>"
-                "Equity / Debt / Liquid automatic roll-up</div>",
-                unsafe_allow_html=True,
-            )
-            render_glass_table(
-                asset_frame,
-                asset_formats,
-                css_class="scenario-table",
-            )
-
-            st.markdown(
-                "<div class='metric-label' style='margin-top:18px'>"
-                "Retail / DHNI / VRM inside each asset class</div>",
-                unsafe_allow_html=True,
-            )
-            detail_frame, detail_formats = build_scenario_10_channel_detail(
-                model,
-                sales,
-            )
-            render_glass_table(
-                detail_frame,
-                detail_formats,
-                css_class="scenario-table",
-            )
-
-
 def render_scenario_drivers(
     model: ScenarioModel,
     basis: str,
@@ -6040,9 +5501,6 @@ def render_scenario_drivers(
         render_channel_simulator(model, basis)
     elif model.scenario_id == 9:
         render_channel_optimizer(model, basis)
-    elif model.scenario_id == 10:
-        render_asset_channel_target_simulator(model)
-        return
 
     tabs = st.tabs(["Channel", "Asset class"])
     with tabs[0]:
@@ -6147,7 +5605,7 @@ def render_export(model: ScenarioModel, payload: bytes) -> None:
         "The scenario workbook contains the scenario guide, current baseline, current-vs-scenario "
         "comparison, revenue impact, Retail/DHNI/VRM summary, Gross and Net breakdowns, the "
         "Scenario 6 segment view, the Scenario 7 momentum trajectory and monthly revenue, the "
-        "channel matrix where relevant, Scenario 10 Asset × Channel detail, and all ten scenarios side by side."
+        "channel matrix where relevant, and all nine scenarios side by side."
     )
  
  
@@ -6259,8 +5717,6 @@ def _sidebar_scenario_label(sid: int) -> str:
         return "Scenario 8 · Channel Growth & Target Simulator"
     if sid == 9:
         return f"Scenario 9 · Jan {_sidebar_pct('s9_jan_target', 1.0)} → Mar {_sidebar_pct('s9_target', 1.20)} · Leakage {_sidebar_pct('s9_leakage', S8_DEFAULT_LEAKAGE)}"
-    if sid == 10:
-        return "Scenario 10 · Asset × Channel Target Simulator"
     return SCENARIOS[sid]["label"]
 
 
@@ -6443,11 +5899,7 @@ def render_command_center(records: pd.DataFrame, payload: bytes) -> None:
  
     # 05 · Scenario planning.
     scenario_id = render_scenario_navigator()
-    params = render_scenario_controls(
-        scenario_id,
-        scenario_default_params(scenario_id),
-        scoped_grid,
-    )
+    params = render_scenario_controls(scenario_id, scenario_default_params(scenario_id))
     params["channel_mapping"] = st.session_state.get("channel_mapping", {})
  
     try:
@@ -6779,15 +6231,8 @@ def reset_workbook() -> None:
     for key in (
         "workbook", "segment_mapping", "channel_mapping", "application_page_selector",
         "scenario_id", "scenario_navigator", "sidebar_scenario_selector",
-        "sidebar_scenario_selector_v7",
     ):
         st.session_state.pop(key, None)
-
-    # Scenario 10 minima depend on the workbook's current projections.
-    for key in list(st.session_state.keys()):
-        if str(key).startswith("s10_"):
-            st.session_state.pop(key, None)
-
     rerun()
  
  
