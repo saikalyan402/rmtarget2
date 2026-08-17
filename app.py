@@ -5,7 +5,7 @@ theme.py — Sales Performance Command Center · presentation layer
 Single source of truth for the dashboard's visual system.
 
 CONTRACT WITH THE APPLICATION
--------------zzz----------------
+-----------------------------
 This module is *display only*. It contains no business logic and it never
 touches a numeric value.
 
@@ -63,6 +63,19 @@ __all__ = [
     "INK", "INK_SOFT", "INK_MUTED", "GOLD", "GOLD_SOFT", "GREEN", "RED",
     "AMBER", "NEUTRAL", "GRID_LINE", "CHART_SEQUENCE",
 ]
+
+
+def _supports_parameter(func: Any, parameter: str) -> bool:
+    """Return True when a callable exposes a named parameter.
+
+    Streamlit adds optional UI parameters over time.  Inspecting the installed
+    version keeps this presentation module compatible across local and cloud
+    deployments without pinning the application to one exact Streamlit build.
+    """
+    try:
+        return parameter in inspect.signature(func).parameters
+    except (TypeError, ValueError):
+        return False
 
 
 # =============================================================================
@@ -1388,28 +1401,26 @@ def section_header(title: str, description: str = "", index: str = "") -> None:
 
 @contextmanager
 def glass(level: int = 1, key: Optional[str] = None):
-    """
-    Container with a glass surface that can hold real Streamlit widgets.
+    """Container with a glass surface that can hold real Streamlit widgets.
 
-    Requires Streamlit ≥ ~1.40 for `st.container(key=...)`. On older versions it
-    degrades to a plain container so nothing breaks.
-
-        with theme.glass(level=1, key="upload"):
-            st.file_uploader(...)
+    The helper adapts to the Streamlit version installed by the deployment.
+    Newer versions receive a stable key so the CSS can target the container;
+    older versions fall back to a normal container without passing unsupported
+    keyword arguments.
     """
+    level = max(1, min(int(level), 2))
     suffix = f"-{key}" if key else ""
-    container_key = f"glass{max(1, min(level, 2))}{suffix}"
-    try:
-        supports_key = "key" in inspect.signature(st.container).parameters
-    except (TypeError, ValueError):
-        supports_key = False
+    container_key = f"glass{level}{suffix}"
 
-    if supports_key:
-        with st.container(key=container_key):
-            yield
-    else:
-        with st.container(border=True):
-            yield
+    kwargs: Dict[str, Any] = {}
+    if _supports_parameter(st.container, "key"):
+        kwargs["key"] = container_key
+    elif _supports_parameter(st.container, "border"):
+        # Older builds may support border but not key.
+        kwargs["border"] = True
+
+    with st.container(**kwargs):
+        yield
 
 
 def delta_pill(text: str, state: str = "neutral", show_glyph: bool = True) -> str:
@@ -1491,7 +1502,10 @@ def kpi_row(cards: Sequence[Dict[str, Any]], widths: Optional[Sequence[float]] =
     if not cards:
         return
     ratios = list(widths) if widths else [1] * len(cards)
-    columns = st.columns(ratios, gap="medium")
+    if _supports_parameter(st.columns, "gap"):
+        columns = st.columns(ratios, gap="medium")
+    else:
+        columns = st.columns(ratios)
     for column, card in zip(columns, cards):
         with column:
             kpi_card(**card)
@@ -1725,7 +1739,7 @@ PLOTLY_TEMPLATE: Dict[str, Any] = {
         "plot_bgcolor": "rgba(0,0,0,0)",
         "font": {"family": "Inter, -apple-system, 'Segoe UI', sans-serif",
                  "size": 12, "color": INK_SOFT},
-        "title": {"font": {"size": 16, "color": INK, "weight": 600}, "x": 0, "xanchor": "left"},
+        "title": {"font": {"size": 16, "color": INK}, "x": 0, "xanchor": "left"},
         "margin": {"l": 8, "r": 8, "t": 8, "b": 8},
         "xaxis": {
             "gridcolor": GRID_LINE, "zeroline": False,
@@ -1759,20 +1773,36 @@ PLOTLY_TEMPLATE: Dict[str, Any] = {
 
 
 def apply_chart_theme(fig, height: Optional[int] = None, show_legend: Optional[bool] = None):
-    """
-    Apply the design system to an existing Plotly figure, in place.
+    """Apply the design system to an existing Plotly figure, in place.
 
     Only layout properties are modified. Traces, values, axis ranges derived
     from data and hover text are left untouched.
+
+    A tiny compatibility fallback is included because Streamlit deployments
+    can resolve a different Plotly minor version than a local environment.
     """
     layout = dict(PLOTLY_TEMPLATE["layout"])
     if height is not None:
         layout["height"] = height
     if show_legend is not None:
         layout["showlegend"] = show_legend
-    fig.update_layout(**layout)
+
+    try:
+        fig.update_layout(**layout)
+    except (TypeError, ValueError):
+        # Keep the chart functional even if an older Plotly build rejects one
+        # of the non-essential cosmetic options.
+        safe_layout = dict(layout)
+        safe_layout.pop("separators", None)
+        title = safe_layout.get("title")
+        if isinstance(title, dict):
+            title = dict(title)
+            font = title.get("font")
+            if isinstance(font, dict):
+                font = {k: v for k, v in font.items() if k in {"family", "size", "color"}}
+                title["font"] = font
+            safe_layout["title"] = title
+        fig.update_layout(**safe_layout)
+
     return fig
 
-
-if __name__ == "__main__":
- main()
