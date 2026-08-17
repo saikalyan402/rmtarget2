@@ -934,9 +934,11 @@ def _augment_final_runrate(frame: pd.DataFrame, months_done: int) -> pd.DataFram
     )
     out["Current RR"] = out["YTD"] / months
  
-    # This matches the FINAL workbook:
-    # 154,757 / 12 = 12,896; 20,699 / 12 = 1,725.
-    out["Required RR to Target"] = out["FY27 Target"] / 12.0
+    # Required run rate means the monthly pace needed FROM NOW to close the
+    # remaining FY target, not the FY target averaged across all 12 months.
+    # Example with 3 months completed: (FY27 Target - YTD) / 9 remaining months.
+    remaining_months = max(12 - months, 1)
+    out["Required RR to Target"] = (out["FY27 Target"] - out["YTD"]) / remaining_months
  
     # Annualise the current Apr-Jun run rate to a full 12-month FY.
     out["Estimated FY @ Current RR"] = out["Current RR"] * 12.0
@@ -3392,6 +3394,39 @@ div[role="radiogroup"] > label div[data-testid="stMarkdownContainer"] p {
 .sales-kpi-card {
     position: relative;
 }
+/* Gross and Net Sales use different accents while keeping the same card layout. */
+.sales-kpi-card.gross-sales-card {
+    border-color: rgba(105, 166, 255, 0.34);
+    background: linear-gradient(135deg, rgba(77, 143, 238, 0.13), rgba(255,255,255,0.035));
+}
+.sales-kpi-card.gross-sales-card .metric-hero { color: #8EC2FF; }
+.sales-kpi-card.gross-sales-card .kpi-tag {
+    color: #9BC8FF;
+    border-color: rgba(105, 166, 255, 0.30);
+}
+.sales-kpi-card.gross-sales-card .asset-contrib-details > summary {
+    border-color: rgba(105, 166, 255, 0.48);
+    background: rgba(105, 166, 255, 0.08);
+}
+.sales-kpi-card.gross-sales-card .asset-contrib-details > summary::after,
+.sales-kpi-card.gross-sales-card .asset-contrib-share { color: #8EC2FF; }
+
+.sales-kpi-card.net-sales-card {
+    border-color: rgba(99, 217, 154, 0.34);
+    background: linear-gradient(135deg, rgba(69, 176, 119, 0.13), rgba(255,255,255,0.035));
+}
+.sales-kpi-card.net-sales-card .metric-hero { color: #79E0AA; }
+.sales-kpi-card.net-sales-card .kpi-tag {
+    color: #79E0AA;
+    border-color: rgba(99, 217, 154, 0.30);
+}
+.sales-kpi-card.net-sales-card .asset-contrib-details > summary {
+    border-color: rgba(99, 217, 154, 0.48);
+    background: rgba(99, 217, 154, 0.08);
+}
+.sales-kpi-card.net-sales-card .asset-contrib-details > summary::after,
+.sales-kpi-card.net-sales-card .asset-contrib-share { color: #79E0AA; }
+
 .metric-hero-line {
     display: flex;
     align-items: center;
@@ -3475,7 +3510,7 @@ div[role="radiogroup"] > label div[data-testid="stMarkdownContainer"] p {
     display: flex;
     align-items: baseline;
     justify-content: flex-end;
-    gap: 10px;
+    gap: 18px;
     min-width: 0;
 }
 .asset-contrib-amount {
@@ -3488,8 +3523,9 @@ div[role="radiogroup"] > label div[data-testid="stMarkdownContainer"] p {
     color: var(--gold);
     font-size: 0.74rem;
     font-weight: 600;
-    min-width: 52px;
+    min-width: 58px;
     text-align: right;
+    padding-right: 2px;
     font-variant-numeric: tabular-nums;
 }
 .asset-contrib-empty {
@@ -4229,9 +4265,10 @@ def _asset_contribution_html(frame: pd.DataFrame) -> str:
 
 def render_sales_kpi_card(title: str, row: pd.Series, frame: pd.DataFrame) -> str:
     """Gross / Net sales card with an inline + control for asset contribution."""
+    sales_card_class = "gross-sales-card" if title.strip().lower().startswith("gross") else "net-sales-card"
     if row is None or len(row) == 0:
         return (
-            f"<div class='glass-card sales-kpi-card'><div class='metric-label'>{escape(title)}</div>"
+            f"<div class='glass-card sales-kpi-card {sales_card_class}'><div class='metric-label'>{escape(title)}</div>"
             "<div class='metric-hero'>—</div>"
             "<div class='metric-secondary'>Metrics could not be located on the FINAL sheet.</div></div>"
         )
@@ -4263,7 +4300,7 @@ def render_sales_kpi_card(title: str, row: pd.Series, frame: pd.DataFrame) -> st
     contribution = _asset_contribution_html(frame)
  
     return (
-        "<div class='glass-card sales-kpi-card'>"
+        f"<div class='glass-card sales-kpi-card {sales_card_class}'>"
         f"<div class='kpi-head'><span class='metric-label'>{escape(title)}</span>"
         "<span class='kpi-tag'>FY27</span></div>"
         "<div class='metric-hero-line'>"
@@ -4536,7 +4573,9 @@ def render_current_runrate(grid: pd.DataFrame, basis: str, asset: str) -> None:
         return
 
     cell = summarize_current(grid, sales=basis, asset=None if asset == "All" else asset)
-    required_rr = _z(cell.get("fy_target")) / 12.0
+    required_rr = (
+        _z(cell.get("fy_target")) - _z(cell.get("ytd_ach"))
+    ) / max(MONTHS_REMAINING, 1)
     current_rr = _num(cell.get("current_rr"))
     pace_gap = None
     if current_rr is not None and required_rr:
@@ -4554,7 +4593,7 @@ def render_current_runrate(grid: pd.DataFrame, basis: str, asset: str) -> None:
          "secondary": "YTD ÷ 3 completed months"},
         {"label": "Required run rate", "value": fmt_cr(required_rr),
          "delta": fmt_pct_signed(pace_gap), "tone": _tone_for(pace_gap),
-         "secondary": "pace gap on today's run rate"},
+         "secondary": "remaining FY target ÷ remaining months"},
         {"label": "Projected March", "value": fmt_pct(projected),
          "delta": fmt_pts(None if projected is None else projected - 1.0),
          "tone": _tone_for(None if projected is None else projected - 1.0),
@@ -5493,7 +5532,9 @@ def render_command_center(records: pd.DataFrame, payload: bytes) -> None:
     scoped_cell = summarize_current(
         scoped_grid, sales=basis, asset=None if asset == "All" else asset
     )
-    required_rr = _z(scoped_cell.get("fy_target")) / 12.0
+    required_rr = (
+        _z(scoped_cell.get("fy_target")) - _z(scoped_cell.get("ytd_ach"))
+    ) / max(MONTHS_REMAINING, 1)
     current_rr = _num(scoped_cell.get("current_rr"))
     pace_gap = (current_rr / required_rr - 1.0) if (current_rr is not None and required_rr) else None
     projected = _num(scoped_cell.get("current_march_pct"))
@@ -5509,7 +5550,7 @@ def render_command_center(records: pd.DataFrame, payload: bytes) -> None:
          "secondary": "YTD ÷ 3 completed months"},
         {"label": "Required run rate", "value": fmt_cr(required_rr),
          "delta": fmt_pct_signed(pace_gap), "tone": _tone_for(pace_gap),
-         "secondary": "pace gap on today's run rate"},
+         "secondary": "remaining FY target ÷ remaining months"},
         {"label": "Projected March", "value": fmt_pct(projected),
          "delta": fmt_pts(None if projected is None else projected - 1.0),
          "tone": _tone_for(None if projected is None else projected - 1.0),
