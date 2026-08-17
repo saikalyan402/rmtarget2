@@ -3388,6 +3388,116 @@ div[role="radiogroup"] > label div[data-testid="stMarkdownContainer"] p {
     flex-wrap: wrap !important;
 }
 
+/* ---------- Current Performance + asset contribution ---------- */
+.sales-kpi-card {
+    position: relative;
+}
+.metric-hero-line {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+}
+.metric-hero-line .metric-hero {
+    min-width: 0;
+}
+.asset-contrib-details {
+    position: relative;
+    margin: 0;
+    padding: 0;
+}
+.asset-contrib-details > summary {
+    list-style: none;
+    width: 27px;
+    height: 27px;
+    min-width: 27px;
+    border: 1px solid rgba(216,183,106,0.48);
+    border-radius: 50%;
+    background: rgba(216,183,106,0.08);
+    cursor: pointer;
+    display: grid;
+    place-items: center;
+    user-select: none;
+    transition: background 160ms ease, border-color 160ms ease, transform 160ms ease;
+}
+.asset-contrib-details > summary::-webkit-details-marker { display: none; }
+.asset-contrib-details > summary::marker { content: ""; }
+.asset-contrib-details > summary::after {
+    content: "+";
+    color: var(--gold);
+    font-family: Arial, sans-serif;
+    font-size: 19px;
+    font-weight: 400;
+    line-height: 1;
+    transform: translateY(-1px);
+}
+.asset-contrib-details[open] > summary::after { content: "−"; }
+.asset-contrib-details > summary:hover {
+    background: rgba(216,183,106,0.15);
+    border-color: rgba(216,183,106,0.72);
+    transform: translateY(-1px);
+}
+.asset-contrib-panel {
+    position: absolute;
+    z-index: 50;
+    top: 36px;
+    right: 0;
+    width: min(310px, 72vw);
+    padding: 13px 14px;
+    border: 1px solid var(--border-strong);
+    border-radius: 14px;
+    background: rgba(13,14,18,0.97);
+    box-shadow: 0 18px 48px rgba(0,0,0,0.48), inset 0 1px 0 rgba(255,255,255,0.06);
+    backdrop-filter: blur(22px);
+    -webkit-backdrop-filter: blur(22px);
+}
+.asset-contrib-title {
+    color: var(--secondary);
+    font-size: 0.65rem;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    margin-bottom: 7px;
+}
+.asset-contrib-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 8px 0;
+    border-top: 1px solid rgba(255,255,255,0.055);
+}
+.asset-contrib-name {
+    color: var(--secondary);
+    font-size: 0.8rem;
+}
+.asset-contrib-values {
+    display: flex;
+    align-items: baseline;
+    justify-content: flex-end;
+    gap: 10px;
+    min-width: 0;
+}
+.asset-contrib-amount {
+    color: var(--text);
+    font-size: 0.82rem;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+}
+.asset-contrib-share {
+    color: var(--gold);
+    font-size: 0.74rem;
+    font-weight: 600;
+    min-width: 52px;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+.asset-contrib-empty {
+    color: var(--secondary);
+    font-size: 0.76rem;
+    line-height: 1.45;
+}
+
 /* ---------- kpi card internals ---------- */
 .kpi-head {
     display: flex;
@@ -4071,11 +4181,57 @@ def render_aum_hero(aum: pd.DataFrame) -> str:
     )
 
 
-def render_sales_kpi_card(title: str, row: pd.Series) -> str:
-    """Gross / Net sales card: YTD is the hero, pace and projection support it."""
+def _asset_contribution_html(frame: pd.DataFrame) -> str:
+    """Expandable YTD contribution of Equity, Debt and Liquid to the sales total."""
+    if not isinstance(frame, pd.DataFrame) or frame.empty:
+        return (
+            "<div class='asset-contrib-empty'>"
+            "Asset-class contribution could not be located on the FINAL sheet."
+            "</div>"
+        )
+
+    total = None
+    if "Overall" in frame.index:
+        total = _num(frame.loc["Overall"].get("YTD"))
+
+    asset_values: List[Tuple[str, Optional[float]]] = []
+    for asset_name in FINAL_ASSET_ROWS:
+        value = None
+        if asset_name in frame.index:
+            value = _num(frame.loc[asset_name].get("YTD"))
+        asset_values.append((asset_name, value))
+
+    # If FINAL does not expose an Overall YTD value, fall back to the visible
+    # asset-class rows so the contribution percentages can still be calculated.
+    if total is None:
+        present_values = [value for _, value in asset_values if value is not None]
+        total = sum(present_values) if present_values else None
+
+    contribution_rows: List[str] = []
+    for asset_name, value in asset_values:
+        share = None
+        if value is not None and total is not None and total != 0:
+            share = value / total
+        contribution_rows.append(
+            "<div class='asset-contrib-row'>"
+            f"<span class='asset-contrib-name'>{escape(asset_name)}</span>"
+            "<span class='asset-contrib-values'>"
+            f"<span class='asset-contrib-amount'>{escape(fmt_cr(value))}</span>"
+            f"<span class='asset-contrib-share'>{escape(fmt_pct(share))}</span>"
+            "</span></div>"
+        )
+
+    return (
+        "<div class='asset-contrib-title'>YTD asset-class contribution</div>"
+        + "".join(contribution_rows)
+    )
+
+
+def render_sales_kpi_card(title: str, row: pd.Series, frame: pd.DataFrame) -> str:
+    """Gross / Net sales card with an inline + control for asset contribution."""
     if row is None or len(row) == 0:
         return (
-            f"<div class='glass-card'><div class='metric-label'>{escape(title)}</div>"
+            f"<div class='glass-card sales-kpi-card'><div class='metric-label'>{escape(title)}</div>"
             "<div class='metric-hero'>—</div>"
             "<div class='metric-secondary'>Metrics could not be located on the FINAL sheet.</div></div>"
         )
@@ -4103,12 +4259,20 @@ def render_sales_kpi_card(title: str, row: pd.Series) -> str:
             "pos" if (projected or 0) >= 1 else "neg",
         ),
     ])
+
+    contribution = _asset_contribution_html(frame)
  
     return (
-        "<div class='glass-card'>"
+        "<div class='glass-card sales-kpi-card'>"
         f"<div class='kpi-head'><span class='metric-label'>{escape(title)}</span>"
         "<span class='kpi-tag'>FY27</span></div>"
+        "<div class='metric-hero-line'>"
         f"<div class='metric-hero'>{escape(fmt_cr(row.get('YTD')))}</div>"
+        "<details class='asset-contrib-details'>"
+        f"<summary title='Show {escape(title)} asset-class contribution' "
+        f"aria-label='Show {escape(title)} asset-class contribution'></summary>"
+        f"<div class='asset-contrib-panel'>{contribution}</div>"
+        "</details></div>"
         "<div class='metric-label'>Year to date</div>"
         + progress_html(
             achievement,
@@ -4143,8 +4307,8 @@ def render_current_performance(final_metrics: Dict[str, Any], model: ScenarioMod
     # order: AUM, Gross Sales, Net Sales. AUM remains excluded from the separate
     # Business Drivers section, as requested.
     aum_card = render_aum_hero(aum_frame)
-    gross_card = render_sales_kpi_card("Gross Sales", _overall_row(gs))
-    net_card = render_sales_kpi_card("Net Sales", _overall_row(ns))
+    gross_card = render_sales_kpi_card("Gross Sales", _overall_row(gs), gs)
+    net_card = render_sales_kpi_card("Net Sales", _overall_row(ns), ns)
     cards = aum_card + gross_card + net_card
     st.markdown(f"<div class='hero-grid'>{cards}</div>", unsafe_allow_html=True)
 
@@ -4410,23 +4574,16 @@ def render_current_runrate(grid: pd.DataFrame, basis: str, asset: str) -> None:
 # =============================================================================
  
 def render_scenario_navigator() -> int:
-    """05 · Horizontal glass scenario navigator."""
+    """05 · Scenario planning header; selection now lives only in the sidebar."""
     section_header(
         "05",
         "Scenario planning",
         "What changes if the organisation changes the trajectory",
     )
-    options = [f"{sid:02d}  {SCENARIOS[sid]['short']}" for sid in SCENARIO_ORDER]
-    choice = st.radio(
-        "Scenario",
-        options,
-        index=SCENARIO_ORDER.index(st.session_state.get("scenario_id", 1)),
-        horizontal=True,
-        key="scenario_navigator",
-        label_visibility="collapsed",
-    )
-    scenario_id = SCENARIO_ORDER[options.index(choice)]
-    st.session_state["scenario_id"] = scenario_id
+    scenario_id = int(st.session_state.get("scenario_id", 1))
+    if scenario_id not in SCENARIO_ORDER:
+        scenario_id = 1
+        st.session_state["scenario_id"] = scenario_id
     return scenario_id
  
  
@@ -5201,6 +5358,25 @@ def render_sidebar(records: pd.DataFrame) -> Tuple[str, Dict[str, Any], Dict[str
         key="application_page_selector",
         label_visibility="collapsed",
     )
+
+    # Scenario selection has a single home: the left sidebar. This prevents
+    # duplicate scenario selectors from appearing above or inside comparisons.
+    sidebar.markdown("<div class='sidebar-title'>Scenario planning</div>", unsafe_allow_html=True)
+    scenario_options = [SCENARIOS[sid]["label"] for sid in SCENARIO_ORDER]
+    current_scenario = int(st.session_state.get("scenario_id", 1))
+    if current_scenario not in SCENARIO_ORDER:
+        current_scenario = 1
+    selected_scenario_label = sidebar.selectbox(
+        "Scenario",
+        scenario_options,
+        index=SCENARIO_ORDER.index(current_scenario),
+        key="sidebar_scenario_selector",
+        label_visibility="collapsed",
+    )
+    selected_scenario_id = next(
+        sid for sid in SCENARIO_ORDER if SCENARIOS[sid]["label"] == selected_scenario_label
+    )
+    st.session_state["scenario_id"] = selected_scenario_id
  
     sidebar.markdown("<div class='sidebar-title'>Data mapping</div>", unsafe_allow_html=True)
     segment_mapping = render_segment_controls(records)
@@ -5679,7 +5855,10 @@ def render_rm_segmentation_page(records: pd.DataFrame, payload: bytes) -> None:
 # =============================================================================
  
 def reset_workbook() -> None:
-    for key in ("workbook", "segment_mapping", "channel_mapping", "application_page_selector"):
+    for key in (
+        "workbook", "segment_mapping", "channel_mapping", "application_page_selector",
+        "scenario_id", "scenario_navigator", "sidebar_scenario_selector",
+    ):
         st.session_state.pop(key, None)
     rerun()
  
