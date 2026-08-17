@@ -1,4 +1,6 @@
 from __future__ import annotations
+
+# PATCH VERSION: v7 dynamic-scenario-copy + larger-amounts + simplified-revenue
  
 import inspect
 import io
@@ -9,31 +11,7 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 from openpyxl import load_workbook as openpyxl_load_workbook
-
-
-# =============================================================================
-# EMBEDDED PRESENTATION THEME
-# =============================================================================
-# Self-contained embedded presentation layer; no separate module is required.
-
-EMBEDDED_PAGE_CONFIG = {'page_title': 'Sales Performance Command Center', 'layout': 'wide', 'initial_sidebar_state': 'collapsed'}
-
-_EMBEDDED_THEME_CSS = '\n<style>\n@import url(\'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap\');\n\n:root {\n  /* --- surfaces --- */\n  --bg-base:        #080A0D;\n  --bg-raise:       #0B0D10;\n  --bg-lift:        #0F1115;\n\n  /* --- glass --- */\n  --glass-1:        rgba(255, 255, 255, 0.045);\n  --glass-2:        rgba(255, 255, 255, 0.028);\n  --glass-3:        rgba(255, 255, 255, 0.055);\n  --glass-1-edge:   rgba(255, 255, 255, 0.085);\n  --glass-2-edge:   rgba(255, 255, 255, 0.055);\n  --glass-3-edge:   rgba(255, 255, 255, 0.10);\n\n  /* --- ink --- */\n  --text-primary:   #F5F7FA;\n  --text-secondary: #A8ADB7;\n  --text-muted:     #707681;\n  --text-faint:     #4C525C;\n\n  /* --- accent --- */\n  --accent:         #D8B76A;\n  --accent-soft:    #C9AA65;\n  --accent-dim:     rgba(216, 183, 106, 0.14);\n  --accent-edge:    rgba(216, 183, 106, 0.32);\n\n  /* --- semantic --- */\n  --success:        #63D99A;\n  --success-dim:    rgba(99, 217, 154, 0.12);\n  --danger:         #FF6B6B;\n  --danger-dim:     rgba(255, 107, 107, 0.12);\n  --warning:        #E0B252;\n  --warning-dim:    rgba(224, 178, 82, 0.12);\n  --neutral:        #7C8899;\n  --neutral-dim:    rgba(124, 136, 153, 0.12);\n\n  /* --- radius --- */\n  --radius-sm:      11px;   /* controls  */\n  --radius-md:      18px;   /* cards     */\n  --radius-lg:      24px;   /* sections  */\n  --radius-pill:    999px;\n\n  /* --- blur --- */\n  --blur-sm:        10px;\n  --blur-md:        18px;\n  --blur-lg:        26px;\n\n  /* --- shadow: diffused, layered, never plastic --- */\n  --shadow-1:       0 1px 2px rgba(0,0,0,0.20);\n  --shadow-2:       0 6px 20px -8px rgba(0,0,0,0.42);\n  --shadow-3:       0 18px 48px -20px rgba(0,0,0,0.58);\n\n  /* --- spacing scale (strict) --- */\n  --space-1: 4px;  --space-2: 8px;  --space-3: 12px; --space-4: 16px;\n  --space-5: 24px; --space-6: 32px; --space-7: 48px; --space-8: 64px;\n\n  /* --- type --- */\n  --font: \'Inter\', -apple-system, BlinkMacSystemFont, \'Segoe UI\', sans-serif;\n\n  /* --- layout --- */\n  --page-max: 1440px;\n  --grid-gap: 24px;\n\n  --ease: cubic-bezier(0.32, 0.72, 0, 1);\n}\n\n/* ===========================================================================\n   BACKGROUND — quiet, with three barely-there ambient pools\n   =========================================================================== */\n\nhtml, body, [data-testid="stAppViewContainer"] {\n  background: var(--bg-base);\n  font-family: var(--font);\n  color: var(--text-primary);\n  -webkit-font-smoothing: antialiased;\n}\n\n[data-testid="stAppViewContainer"]::before {\n  content: "";\n  position: fixed;\n  inset: 0;\n  pointer-events: none;\n  z-index: 0;\n  background:\n    radial-gradient(900px 620px at 12% -8%,  rgba(94, 122, 147, 0.10), transparent 62%),\n    radial-gradient(760px 520px at 88% 4%,   rgba(142, 127, 168, 0.075), transparent 60%),\n    radial-gradient(1200px 760px at 50% 108%, rgba(216, 183, 106, 0.045), transparent 66%),\n    linear-gradient(180deg, var(--bg-raise) 0%, var(--bg-base) 46%, var(--bg-lift) 100%);\n}\n[data-testid="stAppViewContainer"] > * { position: relative; z-index: 1; }\n\n[data-testid="stHeader"] { background: transparent; }\n[data-testid="stToolbar"] { right: var(--space-3); }\n#MainMenu, footer { visibility: hidden; }\n\n/* Controlled content width — an application, not a stretched page */\n.block-container {\n  max-width: var(--page-max) !important;\n  padding: var(--space-7) var(--space-6) var(--space-8) !important;\n}\n@media (min-width: 1600px) {\n  .block-container { padding-left: var(--space-8) !important;\n                      padding-right: var(--space-8) !important; }\n}\n@media (max-width: 900px) {\n  .block-container { padding: var(--space-6) var(--space-5) var(--space-7) !important; }\n}\n\n/* ===========================================================================\n   TYPOGRAPHY — one family, one scale. Flat type against glass containers.\n   =========================================================================== */\n\n.sp-eyebrow {\n  font-size: 11px;\n  font-weight: 600;\n  letter-spacing: 0.16em;\n  text-transform: uppercase;\n  color: var(--text-muted);\n  margin: 0 0 var(--space-3) 0;\n}\n.sp-title {\n  font-size: 40px;\n  font-weight: 650;\n  line-height: 1.08;\n  letter-spacing: -0.024em;\n  color: var(--text-primary);\n  margin: 0 0 var(--space-3) 0;\n}\n.sp-subtitle {\n  font-size: 15px;\n  font-weight: 400;\n  line-height: 1.55;\n  color: var(--text-secondary);\n  margin: 0;\n  max-width: 68ch;\n}\n.sp-section-title {\n  font-size: 22px;\n  font-weight: 600;\n  letter-spacing: -0.014em;\n  color: var(--text-primary);\n  margin: 0;\n}\n.sp-section-desc {\n  font-size: 13px;\n  font-weight: 400;\n  line-height: 1.6;\n  color: var(--text-muted);\n  margin: var(--space-2) 0 0 0;\n  max-width: 76ch;\n}\n.sp-card-title {\n  font-size: 17px;\n  font-weight: 600;\n  letter-spacing: -0.008em;\n  color: var(--text-primary);\n  margin: 0;\n}\n.sp-label {\n  font-size: 11px;\n  font-weight: 600;\n  letter-spacing: 0.11em;\n  text-transform: uppercase;\n  color: var(--text-muted);\n  margin: 0;\n}\n.sp-body { font-size: 14px; line-height: 1.62; color: var(--text-secondary); }\n.sp-meta { font-size: 12px; line-height: 1.5;  color: var(--text-muted); }\n\n@media (max-width: 900px) {\n  .sp-title { font-size: 30px; }\n  .sp-section-title { font-size: 19px; }\n}\n\n/* Numeric typography — tabular figures so columns of digits align.\n   Affects glyph width only, never the value. */\n.sp-num, .sp-kpi-value, .sp-glass-table td.num, .sp-pill {\n  font-variant-numeric: tabular-nums;\n  font-feature-settings: "tnum" 1, "cv05" 1;\n}\n\n/* Streamlit\'s own markdown headings inherit the scale */\n.stMarkdown h1 { font-size: 32px; font-weight: 650; letter-spacing: -0.02em; }\n.stMarkdown h2 { font-size: 22px; font-weight: 600; letter-spacing: -0.014em; }\n.stMarkdown h3 { font-size: 17px; font-weight: 600; }\n.stMarkdown p  { font-size: 14px; line-height: 1.62; color: var(--text-secondary); }\n\n/* ===========================================================================\n   HEADER\n   =========================================================================== */\n\n.sp-header { margin: 0 0 var(--space-7) 0; }      /* no glass around the header */\n\n.sp-header-row {\n  display: flex;\n  align-items: flex-start;\n  justify-content: space-between;\n  gap: var(--space-6);\n  flex-wrap: wrap;\n}\n.sp-header-text { flex: 1 1 480px; min-width: 0; }\n\n/* Utility actions sit apart from the title and read as secondary */\n.sp-utility { display: flex; gap: var(--space-2); flex: 0 0 auto; padding-top: var(--space-2); }\n.sp-utility a {\n  display: inline-flex;\n  align-items: center;\n  gap: var(--space-2);\n  height: 36px;\n  padding: 0 var(--space-3);\n  border-radius: var(--radius-sm);\n  background: var(--glass-3);\n  border: 1px solid var(--glass-3-edge);\n  backdrop-filter: blur(var(--blur-sm));\n  -webkit-backdrop-filter: blur(var(--blur-sm));\n  color: var(--text-secondary);\n  font-size: 13px;\n  font-weight: 500;\n  text-decoration: none;\n  transition: background 170ms var(--ease), color 170ms var(--ease),\n              border-color 170ms var(--ease);\n}\n.sp-utility a:hover {\n  background: rgba(255,255,255,0.085);\n  border-color: rgba(255,255,255,0.16);\n  color: var(--text-primary);\n}\n.sp-utility a:focus-visible { outline: 2px solid var(--accent-edge); outline-offset: 2px; }\n.sp-utility svg { width: 16px; height: 16px; flex: 0 0 16px; }\n\n/* ===========================================================================\n   SECTION HEADER\n   =========================================================================== */\n\n.sp-section {\n  display: flex;\n  align-items: baseline;\n  gap: var(--space-3);\n  margin: var(--space-7) 0 var(--space-5) 0;\n}\n.sp-section:first-child { margin-top: 0; }\n.sp-section-index {\n  font-size: 11px;\n  font-weight: 600;\n  letter-spacing: 0.12em;\n  color: var(--text-faint);\n  flex: 0 0 auto;\n  padding-top: 4px;\n}\n.sp-section-rule {\n  flex: 1 1 auto;\n  height: 1px;\n  background: linear-gradient(90deg, var(--glass-1-edge), transparent);\n  margin-bottom: 6px;\n}\n\n/* ===========================================================================\n   GLASS LEVELS\n   =========================================================================== */\n\n.sp-glass {\n  position: relative;\n  backdrop-filter: blur(var(--blur-md));\n  -webkit-backdrop-filter: blur(var(--blur-md));\n  transition: background 180ms var(--ease), border-color 180ms var(--ease);\n}\n\n/* LEVEL 01 — major sections, main analytics, upload card, main table */\n.sp-glass.l1 {\n  background: var(--glass-1);\n  border: 1px solid var(--glass-1-edge);\n  border-radius: var(--radius-lg);\n  padding: var(--space-6);\n  box-shadow: var(--shadow-3);\n}\n/* the single hairline highlight that makes the surface read as glass */\n.sp-glass.l1::before {\n  content: "";\n  position: absolute;\n  inset: 0 0 auto 0;\n  height: 1px;\n  border-radius: var(--radius-lg) var(--radius-lg) 0 0;\n  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.14), transparent);\n  pointer-events: none;\n}\n\n/* LEVEL 02 — KPI cards, supporting analytics, insights */\n.sp-glass.l2 {\n  background: var(--glass-2);\n  border: 1px solid var(--glass-2-edge);\n  border-radius: var(--radius-md);\n  padding: var(--space-5);\n  box-shadow: var(--shadow-2);\n}\n\n/* LEVEL 03 — interactive: buttons, chips, filters, tabs */\n.sp-glass.l3 {\n  background: var(--glass-3);\n  border: 1px solid var(--glass-3-edge);\n  border-radius: var(--radius-sm);\n  padding: var(--space-2) var(--space-3);\n  backdrop-filter: blur(var(--blur-sm));\n  -webkit-backdrop-filter: blur(var(--blur-sm));\n  box-shadow: var(--shadow-1);\n}\n\n/* Tertiary — supporting detail, minimal treatment */\n.sp-glass.l3-flat {\n  background: transparent;\n  border: 1px solid var(--glass-2-edge);\n  border-radius: var(--radius-md);\n  padding: var(--space-4) var(--space-5);\n  box-shadow: none;\n}\n\n/* Streamlit containers created with st.container(key="...") pick up glass\n   via the generated .st-key-<key> class. */\n[class*="st-key-glass1"] {\n  background: var(--glass-1);\n  border: 1px solid var(--glass-1-edge);\n  border-radius: var(--radius-lg);\n  padding: var(--space-6);\n  box-shadow: var(--shadow-3);\n  backdrop-filter: blur(var(--blur-md));\n  -webkit-backdrop-filter: blur(var(--blur-md));\n}\n[class*="st-key-glass2"] {\n  background: var(--glass-2);\n  border: 1px solid var(--glass-2-edge);\n  border-radius: var(--radius-md);\n  padding: var(--space-5);\n  box-shadow: var(--shadow-2);\n  backdrop-filter: blur(var(--blur-md));\n  -webkit-backdrop-filter: blur(var(--blur-md));\n}\n\n/* ===========================================================================\n   KPI CARDS — label ↓ value ↓ growth ↓ context, always in that order\n   =========================================================================== */\n\n.sp-kpi { display: flex; flex-direction: column; height: 100%; }\n\n.sp-kpi-label {\n  font-size: 11px;\n  font-weight: 600;\n  letter-spacing: 0.11em;\n  text-transform: uppercase;\n  color: var(--text-muted);\n  margin: 0 0 var(--space-3) 0;\n}\n.sp-kpi-value {\n  font-size: 32px;\n  font-weight: 620;\n  line-height: 1.12;\n  letter-spacing: -0.022em;\n  color: var(--text-primary);\n  margin: 0;\n  overflow-wrap: anywhere;   /* long ₹ strings wrap rather than clip */\n}\n.sp-kpi-growth {\n  display: flex;\n  align-items: center;\n  gap: var(--space-2);\n  margin-top: var(--space-3);\n  flex-wrap: wrap;\n}\n.sp-kpi-context { font-size: 12px; color: var(--text-muted); }\n.sp-kpi-foot {\n  display: flex;\n  align-items: baseline;\n  justify-content: space-between;\n  gap: var(--space-3);\n  margin-top: var(--space-4);\n  padding-top: var(--space-3);\n  border-top: 1px solid var(--glass-2-edge);\n}\n.sp-kpi-foot .k { font-size: 11px; letter-spacing: 0.09em; text-transform: uppercase;\n                   color: var(--text-muted); }\n.sp-kpi-foot .v { font-size: 14px; font-weight: 550; color: var(--text-secondary);\n                   font-variant-numeric: tabular-nums; }\n\n/* Primary card — strongest presence, larger value, more padding */\n.sp-kpi-card.primary {\n  background: var(--glass-1);\n  border: 1px solid var(--glass-1-edge);\n  border-radius: var(--radius-lg);\n  padding: var(--space-6);\n  box-shadow: var(--shadow-3);\n}\n.sp-kpi-card.primary .sp-kpi-value { font-size: 36px; }\n.sp-kpi-card.primary::after {\n  content: "";\n  position: absolute;\n  left: var(--space-6); top: 0;\n  width: 40px; height: 2px;\n  background: var(--accent);\n  border-radius: 0 0 2px 2px;\n  opacity: 0.85;\n}\n\n/* Secondary card — restrained */\n.sp-kpi-card.secondary {\n  background: var(--glass-2);\n  border: 1px solid var(--glass-2-edge);\n  border-radius: var(--radius-md);\n  padding: var(--space-5);\n  box-shadow: var(--shadow-2);\n}\n.sp-kpi-card.secondary .sp-kpi-value { font-size: 26px; }\n\n/* Supporting card — minimal */\n.sp-kpi-card.supporting {\n  background: transparent;\n  border: 1px solid var(--glass-2-edge);\n  border-radius: var(--radius-md);\n  padding: var(--space-4) var(--space-5);\n  box-shadow: none;\n}\n.sp-kpi-card.supporting .sp-kpi-value { font-size: 21px; font-weight: 600; }\n.sp-kpi-card.supporting .sp-kpi-label { margin-bottom: var(--space-2); }\n\n.sp-kpi-card {\n  position: relative;\n  height: 100%;\n  backdrop-filter: blur(var(--blur-md));\n  -webkit-backdrop-filter: blur(var(--blur-md));\n}\n\n@media (max-width: 900px) {\n  .sp-kpi-card.primary .sp-kpi-value { font-size: 28px; }\n  .sp-kpi-card.secondary .sp-kpi-value { font-size: 22px; }\n}\n\n/* ===========================================================================\n   SEMANTIC PILLS — colour + glyph + label, never colour alone\n   =========================================================================== */\n\n.sp-pill {\n  display: inline-flex;\n  align-items: center;\n  gap: 5px;\n  height: 24px;\n  padding: 0 9px;\n  border-radius: var(--radius-pill);\n  font-size: 12.5px;\n  font-weight: 600;\n  letter-spacing: -0.004em;\n  border: 1px solid transparent;\n  white-space: nowrap;\n}\n.sp-pill .g { font-size: 11px; line-height: 1; }   /* the ↑ ↓ → glyph */\n\n.sp-pill.positive { color: var(--success); background: var(--success-dim);\n                     border-color: rgba(99,217,154,0.24); }\n.sp-pill.negative { color: var(--danger);  background: var(--danger-dim);\n                     border-color: rgba(255,107,107,0.24); }\n.sp-pill.warning  { color: var(--warning); background: var(--warning-dim);\n                     border-color: rgba(224,178,82,0.24); }\n.sp-pill.neutral  { color: var(--neutral); background: var(--neutral-dim);\n                     border-color: rgba(124,136,153,0.22); }\n\n/* Status badges */\n.sp-badge {\n  display: inline-flex;\n  align-items: center;\n  gap: var(--space-2);\n  height: 26px;\n  padding: 0 10px;\n  border-radius: var(--radius-pill);\n  font-size: 11.5px;\n  font-weight: 600;\n  letter-spacing: 0.05em;\n  text-transform: uppercase;\n  border: 1px solid transparent;\n}\n.sp-badge::before { content: ""; width: 6px; height: 6px; border-radius: 50%;\n                     background: currentColor; flex: 0 0 6px; }\n.sp-badge.positive { color: var(--success); background: var(--success-dim);\n                      border-color: rgba(99,217,154,0.22); }\n.sp-badge.negative { color: var(--danger);  background: var(--danger-dim);\n                      border-color: rgba(255,107,107,0.22); }\n.sp-badge.warning  { color: var(--warning); background: var(--warning-dim);\n                      border-color: rgba(224,178,82,0.22); }\n.sp-badge.neutral  { color: var(--neutral); background: var(--neutral-dim);\n                      border-color: rgba(124,136,153,0.20); }\n.sp-badge.accent   { color: var(--accent);  background: var(--accent-dim);\n                      border-color: var(--accent-edge); }\n\n/* ===========================================================================\n   SHEET CHIPS\n   =========================================================================== */\n\n.sp-chips { display: flex; flex-wrap: wrap; gap: var(--space-2); margin: 0; }\n.sp-chip {\n  display: inline-flex;\n  align-items: center;\n  gap: var(--space-2);\n  height: 32px;\n  padding: 0 var(--space-3);\n  border-radius: var(--radius-sm);\n  font-size: 13px;\n  font-weight: 500;\n  background: var(--glass-3);\n  border: 1px solid var(--glass-3-edge);\n  color: var(--text-secondary);\n  backdrop-filter: blur(var(--blur-sm));\n  -webkit-backdrop-filter: blur(var(--blur-sm));\n  transition: background 170ms var(--ease), border-color 170ms var(--ease);\n}\n.sp-chip:hover { background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.16); }\n\n/* FINAL is the primary sheet — stronger emphasis than the rest */\n.sp-chip.primary {\n  color: var(--accent);\n  background: var(--accent-dim);\n  border-color: var(--accent-edge);\n  font-weight: 600;\n}\n.sp-chip.found::before   { content: "✓"; font-size: 11px; color: var(--success); }\n.sp-chip.missing { color: var(--text-faint); border-style: dashed; }\n.sp-chip.missing::before { content: "—"; font-size: 11px; }\n\n/* ===========================================================================\n   BUTTONS — three levels, never all styled alike\n   =========================================================================== */\n\n.stButton > button,\n.stDownloadButton > button,\n[data-testid="stFormSubmitButton"] > button {\n  font-family: var(--font) !important;\n  height: 42px;\n  min-height: 42px;\n  padding: 0 var(--space-4) !important;\n  border-radius: var(--radius-sm) !important;\n  font-size: 14px !important;\n  font-weight: 550 !important;\n  letter-spacing: -0.003em;\n  transition: background 170ms var(--ease), border-color 170ms var(--ease),\n              color 170ms var(--ease), transform 170ms var(--ease) !important;\n}\n\n/* Secondary (Streamlit default) — medium emphasis */\n.stButton > button[kind="secondary"],\n.stButton > button:not([kind="primary"]),\n[data-testid="stBaseButton-secondary"] {\n  background: var(--glass-3) !important;\n  border: 1px solid var(--glass-3-edge) !important;\n  color: var(--text-primary) !important;\n  backdrop-filter: blur(var(--blur-sm));\n  -webkit-backdrop-filter: blur(var(--blur-sm));\n  box-shadow: var(--shadow-1) !important;\n}\n.stButton > button:not([kind="primary"]):hover,\n[data-testid="stBaseButton-secondary"]:hover {\n  background: rgba(255,255,255,0.085) !important;\n  border-color: rgba(255,255,255,0.17) !important;\n}\n\n/* Primary CTA — highest priority, the only filled accent button */\n.stButton > button[kind="primary"],\n[data-testid="stBaseButton-primary"],\n.stDownloadButton > button {\n  background: linear-gradient(180deg, #D8B76A 0%, #C9AA65 100%) !important;\n  border: 1px solid rgba(216,183,106,0.55) !important;\n  color: #14110A !important;\n  font-weight: 620 !important;\n  box-shadow: 0 6px 18px -8px rgba(216,183,106,0.42) !important;\n}\n.stButton > button[kind="primary"]:hover,\n[data-testid="stBaseButton-primary"]:hover,\n.stDownloadButton > button:hover {\n  filter: brightness(1.07);\n  transform: translateY(-1px);\n}\n\n/* Tertiary — minimal, for "View details →" style actions.\n   Apply with: st.button("View details →", type="tertiary")   [Streamlit ≥1.42]\n   or wrap in st.container(key="tertiary-actions"). */\n.stButton > button[kind="tertiary"],\n[class*="st-key-tertiary"] .stButton > button {\n  background: transparent !important;\n  border: 1px solid transparent !important;\n  color: var(--text-secondary) !important;\n  padding: 0 var(--space-2) !important;\n  box-shadow: none !important;\n  font-weight: 500 !important;\n}\n.stButton > button[kind="tertiary"]:hover,\n[class*="st-key-tertiary"] .stButton > button:hover {\n  color: var(--accent) !important;\n  background: transparent !important;\n}\n\n/* States */\n.stButton > button:focus-visible,\n.stDownloadButton > button:focus-visible {\n  outline: 2px solid var(--accent-edge) !important;\n  outline-offset: 2px;\n}\n.stButton > button:active { transform: translateY(0) scale(0.995); }\n.stButton > button:disabled { opacity: 0.42 !important; transform: none !important;\n                               filter: none !important; cursor: not-allowed; }\n\n/* ===========================================================================\n   FILE UPLOADER — one component, one action, no duplicated text\n   Pass label_visibility="collapsed" so the surrounding card owns the copy.\n   =========================================================================== */\n\n[data-testid="stFileUploader"] { width: 100%; }\n[data-testid="stFileUploader"] > label { display: none !important; }\n\n[data-testid="stFileUploaderDropzone"] {\n  flex-direction: column;\n  align-items: center;\n  justify-content: center;\n  gap: var(--space-3);\n  min-height: 224px;\n  padding: var(--space-7) var(--space-5) !important;\n  background: var(--glass-2) !important;\n  border: 1px dashed rgba(255,255,255,0.16) !important;\n  border-radius: var(--radius-md) !important;\n  backdrop-filter: blur(var(--blur-md));\n  -webkit-backdrop-filter: blur(var(--blur-md));\n  transition: background 180ms var(--ease), border-color 180ms var(--ease);\n}\n[data-testid="stFileUploaderDropzone"]:hover {\n  background: rgba(255,255,255,0.05) !important;\n  border-color: var(--accent-edge) !important;\n}\n\n/* Suppress Streamlit\'s native instruction text and icon, then supply our own\n   copy once. This is the fix for the duplicated upload label. */\n[data-testid="stFileUploaderDropzoneInstructions"] > * { display: none !important; }\n[data-testid="stFileUploaderDropzoneInstructions"] {\n  display: flex !important;\n  flex-direction: column;\n  align-items: center;\n  gap: var(--space-2);\n  color: var(--text-secondary);\n}\n[data-testid="stFileUploaderDropzoneInstructions"]::before {\n  /* upload glyph, same stroke family as the rest of the icon set */\n  content: "";\n  width: 40px; height: 40px;\n  margin-bottom: var(--space-2);\n  background-color: #A8ADB7;\n  -webkit-mask: var(--sp-upload-icon) center / 40px 40px no-repeat;\n  mask: var(--sp-upload-icon) center / 40px 40px no-repeat;\n  opacity: 0.85;\n}\n[data-testid="stFileUploaderDropzoneInstructions"]::after {\n  content: "Drop your RM scorecard here";\n  font-size: 15px;\n  font-weight: 550;\n  color: var(--text-primary);\n  letter-spacing: -0.006em;\n}\n\n/* The single upload action, relabelled */\n[data-testid="stFileUploaderDropzone"] button {\n  height: 42px !important;\n  padding: 0 var(--space-5) !important;\n  border-radius: var(--radius-sm) !important;\n  background: var(--glass-3) !important;\n  border: 1px solid rgba(255,255,255,0.16) !important;\n  color: var(--text-primary) !important;\n  font-size: 14px !important;\n  font-weight: 550 !important;\n  overflow: hidden;\n  position: relative;\n  text-indent: -9999px;   /* hide "Browse files" */\n  white-space: nowrap;\n}\n[data-testid="stFileUploaderDropzone"] button::after {\n  content: "Choose Excel file";\n  position: absolute;\n  inset: 0;\n  display: flex;\n  align-items: center;\n  justify-content: center;\n  text-indent: 0;\n}\n[data-testid="stFileUploaderDropzone"] button:hover {\n  background: rgba(255,255,255,0.10) !important;\n  border-color: var(--accent-edge) !important;\n}\n[data-testid="stFileUploaderDropzone"] small {\n  font-size: 11.5px !important;\n  color: var(--text-muted) !important;\n  letter-spacing: 0.03em;\n}\n\n/* Uploaded-file row */\n[data-testid="stFileUploaderFile"] {\n  background: var(--glass-2);\n  border: 1px solid var(--glass-2-edge);\n  border-radius: var(--radius-sm);\n  padding: var(--space-3) var(--space-4);\n  margin-top: var(--space-3);\n}\n[data-testid="stFileUploaderFileName"] {\n  font-size: 14px; font-weight: 550; color: var(--text-primary);\n}\n\n/* ===========================================================================\n   INPUTS · FILTERS — grouped, consistent, interactive glass\n   =========================================================================== */\n\n.sp-filters {\n  display: flex;\n  flex-wrap: wrap;\n  align-items: flex-end;\n  gap: var(--space-4);\n  padding: var(--space-4) var(--space-5);\n  background: var(--glass-2);\n  border: 1px solid var(--glass-2-edge);\n  border-radius: var(--radius-md);\n  backdrop-filter: blur(var(--blur-md));\n  -webkit-backdrop-filter: blur(var(--blur-md));\n  margin-bottom: var(--space-5);\n}\n\n[data-baseweb="select"] > div,\n[data-testid="stTextInput"] input,\n[data-testid="stNumberInput"] input,\n[data-testid="stDateInput"] input {\n  background: var(--glass-3) !important;\n  border: 1px solid var(--glass-3-edge) !important;\n  border-radius: var(--radius-sm) !important;\n  color: var(--text-primary) !important;\n  min-height: 42px;\n  font-family: var(--font) !important;\n  font-size: 14px !important;\n  transition: border-color 170ms var(--ease), background 170ms var(--ease);\n}\n[data-baseweb="select"] > div:hover { border-color: rgba(255,255,255,0.17) !important; }\n[data-baseweb="select"] > div:focus-within,\n[data-testid="stTextInput"] input:focus,\n[data-testid="stNumberInput"] input:focus {\n  border-color: var(--accent-edge) !important;\n  box-shadow: 0 0 0 3px rgba(216,183,106,0.10) !important;\n}\n[data-baseweb="popover"] [role="listbox"] {\n  background: rgba(15,17,21,0.96) !important;\n  border: 1px solid var(--glass-1-edge) !important;\n  border-radius: var(--radius-sm) !important;\n  backdrop-filter: blur(var(--blur-lg));\n  -webkit-backdrop-filter: blur(var(--blur-lg));\n  box-shadow: var(--shadow-3);\n}\n[role="option"]:hover { background: rgba(255,255,255,0.06) !important; }\n[aria-selected="true"][role="option"] { color: var(--accent) !important; }\n\n/* Widget labels use the metadata scale */\n[data-testid="stWidgetLabel"] label,\n.stSlider label, .stSelectbox label, .stRadio label > div:first-child {\n  font-size: 11px !important;\n  font-weight: 600 !important;\n  letter-spacing: 0.1em !important;\n  text-transform: uppercase;\n  color: var(--text-muted) !important;\n}\n\n/* Sliders — scenario assumption controls */\n[data-testid="stSlider"] [data-baseweb="slider"] div[role="slider"] {\n  background: #D8B76A !important;\n  border: 2px solid rgba(20,17,10,0.9) !important;\n  box-shadow: 0 2px 8px -2px rgba(0,0,0,0.5) !important;\n}\n[data-testid="stSlider"] [data-testid="stSliderTickBarMin"],\n[data-testid="stSlider"] [data-testid="stSliderTickBarMax"] {\n  font-size: 11px; color: var(--text-faint);\n  font-variant-numeric: tabular-nums;\n}\n[data-testid="stSlider"] [data-testid="stThumbValue"] {\n  color: var(--accent) !important;\n  font-size: 12.5px !important;\n  font-weight: 600 !important;\n  font-variant-numeric: tabular-nums;\n}\n\n/* Checkbox / radio / toggle accents */\n[data-testid="stCheckbox"] svg,\n[data-baseweb="checkbox"] svg { color: var(--accent); }\n\n/* ===========================================================================\n   TABS — interactive glass, clear active state\n   =========================================================================== */\n\n.stTabs [data-baseweb="tab-list"] {\n  gap: var(--space-1);\n  padding: var(--space-1);\n  background: var(--glass-2);\n  border: 1px solid var(--glass-2-edge);\n  border-radius: var(--radius-sm);\n  backdrop-filter: blur(var(--blur-sm));\n  -webkit-backdrop-filter: blur(var(--blur-sm));\n  overflow-x: auto;\n  scrollbar-width: none;\n}\n.stTabs [data-baseweb="tab-list"]::-webkit-scrollbar { display: none; }\n.stTabs [data-baseweb="tab"] {\n  height: 38px;\n  padding: 0 var(--space-4);\n  border-radius: 8px;\n  background: transparent;\n  color: var(--text-muted);\n  font-size: 13.5px;\n  font-weight: 550;\n  letter-spacing: -0.003em;\n  white-space: nowrap;\n  transition: background 170ms var(--ease), color 170ms var(--ease);\n}\n.stTabs [data-baseweb="tab"]:hover { color: var(--text-secondary);\n                                      background: rgba(255,255,255,0.04); }\n.stTabs [aria-selected="true"] {\n  background: rgba(255,255,255,0.075) !important;\n  color: var(--text-primary) !important;\n  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.08);\n}\n.stTabs [data-baseweb="tab-highlight"],\n.stTabs [data-baseweb="tab-border"] { display: none; }\n.stTabs [data-baseweb="tab-panel"] { padding-top: var(--space-6); }\n\n/* ===========================================================================\n   TABLES — integrated into the glass, strong numeric alignment\n   =========================================================================== */\n\n.sp-table-wrap {\n  background: var(--glass-1);\n  border: 1px solid var(--glass-1-edge);\n  border-radius: var(--radius-lg);\n  padding: var(--space-2);\n  box-shadow: var(--shadow-3);\n  backdrop-filter: blur(var(--blur-md));\n  -webkit-backdrop-filter: blur(var(--blur-md));\n  overflow: auto;\n  max-height: 620px;\n}\n.sp-glass-table {\n  width: 100%;\n  border-collapse: separate;\n  border-spacing: 0;\n  font-size: 13.5px;\n}\n.sp-glass-table thead th {\n  position: sticky;\n  top: 0;\n  z-index: 2;\n  background: rgba(15,17,21,0.94);\n  backdrop-filter: blur(var(--blur-md));\n  -webkit-backdrop-filter: blur(var(--blur-md));\n  padding: var(--space-3) var(--space-4);\n  text-align: left;\n  font-size: 11px;\n  font-weight: 600;\n  letter-spacing: 0.09em;\n  text-transform: uppercase;\n  color: var(--text-muted);\n  border-bottom: 1px solid var(--glass-1-edge);\n  white-space: nowrap;\n}\n.sp-glass-table thead th.num { text-align: right; }\n.sp-glass-table tbody td {\n  padding: var(--space-3) var(--space-4);\n  border-bottom: 1px solid rgba(255,255,255,0.035);\n  color: var(--text-secondary);\n  white-space: nowrap;\n}\n.sp-glass-table tbody td.num {\n  text-align: right;\n  color: var(--text-primary);\n  font-weight: 500;\n}\n.sp-glass-table tbody td:first-child {\n  color: var(--text-primary);\n  font-weight: 550;\n  position: sticky;\n  left: 0;\n  background: rgba(11,13,16,0.90);\n  backdrop-filter: blur(var(--blur-sm));\n  -webkit-backdrop-filter: blur(var(--blur-sm));\n}\n.sp-glass-table tbody tr:hover td { background: rgba(255,255,255,0.032); }\n.sp-glass-table tbody tr:hover td:first-child { background: rgba(20,22,27,0.94); }\n.sp-glass-table tbody tr:last-child td { border-bottom: none; }\n.sp-glass-table td.pos { color: var(--success); }\n.sp-glass-table td.neg { color: var(--danger); }\n.sp-glass-table tbody tr.total td {\n  border-top: 1px solid var(--glass-1-edge);\n  font-weight: 620;\n  color: var(--text-primary);\n}\n\n/* st.dataframe, when the native widget is used instead */\n[data-testid="stDataFrame"], [data-testid="stTable"] {\n  border: 1px solid var(--glass-1-edge) !important;\n  border-radius: var(--radius-md) !important;\n  overflow: hidden;\n  background: var(--glass-2) !important;\n}\n[data-testid="stDataFrame"] [role="columnheader"] {\n  background: rgba(15,17,21,0.9) !important;\n  color: var(--text-muted) !important;\n  font-size: 11px !important;\n  letter-spacing: 0.08em;\n  text-transform: uppercase;\n}\n\n/* ---- FINAL sheet passthrough ----------------------------------------------\n   These class names are emitted by build_final_sheet_html() in the logic\n   layer. Styling them here keeps the workbook mirror inside the design system\n   without touching that function. */\n.final-sheet-scroll {\n  overflow: auto;\n  max-height: 700px;\n  background: var(--glass-1);\n  border: 1px solid var(--glass-1-edge);\n  border-radius: var(--radius-lg);\n  padding: var(--space-2);\n  box-shadow: var(--shadow-3);\n  backdrop-filter: blur(var(--blur-md));\n  -webkit-backdrop-filter: blur(var(--blur-md));\n}\n.final-sheet-table {\n  border-collapse: separate;\n  border-spacing: 0;\n  font-size: 12.5px;\n  font-variant-numeric: tabular-nums;\n  color: var(--text-secondary);\n}\n.final-sheet-table td {\n  padding: 7px var(--space-3);\n  border-bottom: 1px solid rgba(255,255,255,0.035);\n  border-right: 1px solid rgba(255,255,255,0.022);\n  white-space: nowrap;\n}\n.final-sheet-table td:last-child { border-right: none; }\n.final-sheet-table tr:hover td { background: rgba(255,255,255,0.028); }\n.final-spacer { height: 10px; border: none !important; background: transparent !important; }\n.glass-note {\n  padding: var(--space-5);\n  background: var(--glass-2);\n  border: 1px solid var(--glass-2-edge);\n  border-radius: var(--radius-md);\n  color: var(--text-muted);\n  font-size: 13.5px;\n}\n\n/* ===========================================================================\n   CHART CONTAINERS — hierarchy by size, consistent chrome\n   =========================================================================== */\n\n.sp-chart {\n  background: var(--glass-2);\n  border: 1px solid var(--glass-2-edge);\n  border-radius: var(--radius-md);\n  padding: var(--space-5);\n  box-shadow: var(--shadow-2);\n  backdrop-filter: blur(var(--blur-md));\n  -webkit-backdrop-filter: blur(var(--blur-md));\n}\n.sp-chart.primary {\n  background: var(--glass-1);\n  border-color: var(--glass-1-edge);\n  border-radius: var(--radius-lg);\n  padding: var(--space-6);\n  box-shadow: var(--shadow-3);\n}\n.sp-chart-head {\n  display: flex;\n  align-items: baseline;\n  justify-content: space-between;\n  gap: var(--space-4);\n  margin-bottom: var(--space-5);\n  flex-wrap: wrap;\n}\n.sp-chart .js-plotly-plot,\n.sp-chart-body .js-plotly-plot { background: transparent !important; }\n\n/* ===========================================================================\n   MESSAGES · EMPTY · LOADING\n   =========================================================================== */\n\n.sp-notice {\n  display: flex;\n  gap: var(--space-4);\n  padding: var(--space-5);\n  border-radius: var(--radius-md);\n  border: 1px solid var(--glass-2-edge);\n  background: var(--glass-2);\n  backdrop-filter: blur(var(--blur-md));\n  -webkit-backdrop-filter: blur(var(--blur-md));\n}\n.sp-notice .rail { width: 3px; border-radius: 3px; flex: 0 0 3px; }\n.sp-notice.error   { border-color: rgba(255,107,107,0.26); background: var(--danger-dim); }\n.sp-notice.error   .rail { background: var(--danger); }\n.sp-notice.success { border-color: rgba(99,217,154,0.24); background: var(--success-dim); }\n.sp-notice.success .rail { background: var(--success); }\n.sp-notice.warning { border-color: rgba(224,178,82,0.24); background: var(--warning-dim); }\n.sp-notice.warning .rail { background: var(--warning); }\n.sp-notice h4 { margin: 0 0 var(--space-2) 0; font-size: 15px; font-weight: 600;\n                 color: var(--text-primary); }\n.sp-notice p  { margin: 0; font-size: 13.5px; line-height: 1.6; color: var(--text-secondary); }\n.sp-notice-actions { margin-top: var(--space-4); display: flex; gap: var(--space-3);\n                      flex-wrap: wrap; }\n\n/* An empty dashboard should look intentional, not broken */\n.sp-empty {\n  display: flex;\n  flex-direction: column;\n  align-items: center;\n  text-align: center;\n  gap: var(--space-3);\n  padding: var(--space-8) var(--space-6);\n  border: 1px dashed rgba(255,255,255,0.10);\n  border-radius: var(--radius-lg);\n  background: var(--glass-2);\n}\n.sp-empty h4 { margin: 0; font-size: 17px; font-weight: 600; color: var(--text-primary); }\n.sp-empty p  { margin: 0; font-size: 13.5px; color: var(--text-muted); max-width: 46ch; }\n\n/* Loading feedback */\n[data-testid="stSpinner"] > div { border-top-color: var(--accent) !important; }\n[data-testid="stSpinner"] p { color: var(--text-secondary) !important; font-size: 13.5px; }\n.stProgress > div > div > div > div {\n  background: linear-gradient(90deg, #C9AA65, #D8B76A) !important;\n}\n\n/* Streamlit\'s native alerts, brought into the system */\n[data-testid="stAlert"] {\n  border-radius: var(--radius-md) !important;\n  border: 1px solid var(--glass-2-edge) !important;\n  background: var(--glass-2) !important;\n  backdrop-filter: blur(var(--blur-md));\n  -webkit-backdrop-filter: blur(var(--blur-md));\n  font-size: 13.5px;\n}\n\n/* Expanders */\n[data-testid="stExpander"] {\n  border: 1px solid var(--glass-2-edge) !important;\n  border-radius: var(--radius-md) !important;\n  background: var(--glass-2) !important;\n  backdrop-filter: blur(var(--blur-md));\n  -webkit-backdrop-filter: blur(var(--blur-md));\n}\n[data-testid="stExpander"] summary { font-size: 14px; font-weight: 550;\n                                      color: var(--text-primary); }\n\n/* Dividers and metrics */\nhr, [data-testid="stDivider"] hr {\n  border: none;\n  height: 1px;\n  background: linear-gradient(90deg, transparent, var(--glass-1-edge) 12%,\n              var(--glass-1-edge) 88%, transparent);\n  margin: var(--space-6) 0 !important;\n}\n[data-testid="stMetricValue"] {\n  font-size: 28px !important;\n  font-weight: 620 !important;\n  color: var(--text-primary) !important;\n  font-variant-numeric: tabular-nums;\n}\n[data-testid="stMetricLabel"] {\n  font-size: 11px !important;\n  letter-spacing: 0.1em;\n  text-transform: uppercase;\n  color: var(--text-muted) !important;\n}\n\n/* Grid gaps — the horizontal rhythm between columns */\n[data-testid="stHorizontalBlock"] { gap: var(--grid-gap); }\n@media (max-width: 1100px) {\n  [data-testid="stHorizontalBlock"] { gap: var(--space-4); }\n}\n\n/* Scrollbars */\n::-webkit-scrollbar { width: 10px; height: 10px; }\n::-webkit-scrollbar-track { background: transparent; }\n::-webkit-scrollbar-thumb {\n  background: rgba(255,255,255,0.10);\n  border-radius: var(--radius-pill);\n  border: 2px solid transparent;\n  background-clip: content-box;\n}\n::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.18);\n                                   background-clip: content-box; }\n\n/* Accessibility floor */\n:focus-visible { outline: 2px solid var(--accent-edge); outline-offset: 2px; }\n@media (prefers-reduced-motion: reduce) {\n  *, *::before, *::after {\n    animation-duration: 0.01ms !important;\n    transition-duration: 0.01ms !important;\n  }\n}\n\n/* Icon masks — one stroke family, 1.6px weight, 24px grid */\n:root {\n  --sp-upload-icon: url("data:image/svg+xml;utf8,<svg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'%23fff\' stroke-width=\'1.6\' stroke-linecap=\'round\' stroke-linejoin=\'round\'><path d=\'M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4\'/><polyline points=\'17 8 12 3 7 8\'/><line x1=\'12\' y1=\'3\' x2=\'12\' y2=\'15\'/></svg>");\n}\n</style>\n'
-
-def inject_embedded_theme() -> None:
-    """Inject the embedded dashboard theme."""
-    st.markdown(_EMBEDDED_THEME_CSS, unsafe_allow_html=True)
-
  
-try:  # Plotly powers the strategic visuals; the app still runs without it.
-    import plotly.graph_objects as go
-    import plotly.io as pio
- 
-    PLOTLY_AVAILABLE = True
-except Exception:  # pragma: no cover - optional dependency
-    go = None
-    pio = None
-    PLOTLY_AVAILABLE = False
  
  
 # =============================================================================
@@ -172,7 +150,7 @@ SCENARIOS: Dict[int, Dict[str, str]] = {
         "thesis": "Build momentum now. Create a January buffer. Protect March.",
         "explanation": (
             "Build progressive month-on-month momentum from July 2026 to reach the January 2027 "
-            "milestone, create sufficient buffer to absorb Feb-Mar AUM leakage, and protect the "
+            "milestone, create sufficient buffer to absorb Feb-Mar run-rate leakage, and protect the "
             "March 2027 target."
         ),
         "milestone": "January 2027 milestone → Feb-Mar leakage absorbed → March 2027 target held",
@@ -453,6 +431,7 @@ FORMATTERS = {
  
 # Formats whose values are read as numbers (right aligned in glass tables).
 NUMERIC_FORMATS = {"cr", "cr1", "cr_signed", "cr1_signed", "pct", "pct_signed", "pts", "num"}
+AMOUNT_FORMATS = {"cr", "cr1", "cr_signed", "cr1_signed"}
 SIGNED_FORMATS = {"cr_signed", "cr1_signed", "pct_signed", "pts"}
  
  
@@ -956,9 +935,11 @@ def _augment_final_runrate(frame: pd.DataFrame, months_done: int) -> pd.DataFram
     )
     out["Current RR"] = out["YTD"] / months
  
-    # This matches the FINAL workbook:
-    # 154,757 / 12 = 12,896; 20,699 / 12 = 1,725.
-    out["Required RR to Target"] = out["FY27 Target"] / 12.0
+    # Required run rate means the monthly pace needed FROM NOW to close the
+    # remaining FY target. With Apr-Jun complete, 9 months remain.
+    # IMPORTANT: this is NOT FY27 Target / 12.
+    remaining_months = max(12 - months, 1)
+    out["Required RR to Target"] = (out["FY27 Target"] - out["YTD"]) / remaining_months
  
     # Annualise the current Apr-Jun run rate to a full 12-month FY.
     out["Estimated FY @ Current RR"] = out["Current RR"] * 12.0
@@ -1427,40 +1408,47 @@ def _finalise_cell(cell: Dict[str, Any]) -> Dict[str, Any]:
     return cell
  
  
-def scenario_multipliers(grid: pd.DataFrame, scenario_id: int) -> Dict[Tuple[str, str, str], float]:
-    """
-    Derive the per-asset FY-target multiplier for the selected scenario.
- 
-    Key is (sales type, asset, segment); segment is '*' unless the scenario
-    differentiates by business segment.
-    """
+def scenario_multipliers(
+    grid: pd.DataFrame,
+    scenario_id: int,
+    params: Optional[Dict[str, Any]] = None,
+) -> Dict[Tuple[str, str, str], float]:
+    """Derive per-asset target multipliers from the editable scenario assumptions."""
+    params = params or {}
     multipliers: Dict[Tuple[str, str, str], float] = {}
  
     if scenario_id in (1, 7):
         return multipliers
  
     if scenario_id == 3:
+        target_pct = float(params.get("target_pct", S3_TARGET))
         for sales in SALES_TYPES:
             for asset in ASSETS:
-                multipliers[(sales, asset, "*")] = S3_TARGET
+                multipliers[(sales, asset, "*")] = target_pct
         return multipliers
  
     if scenario_id == 4:
+        target_pct = float(params.get("target_pct", S4_TARGET))
         for sales in SALES_TYPES:
             for asset in ASSETS:
-                multipliers[(sales, asset, "*")] = S4_TARGET
+                multipliers[(sales, asset, "*")] = target_pct
         return multipliers
  
     if scenario_id == 6:
+        segment_targets = dict(params.get("segment_targets", S6_SEGMENT_TARGETS))
         for sales in SALES_TYPES:
             for asset in ASSETS:
                 for segment in SEGMENT_ORDER:
-                    multipliers[(sales, asset, segment)] = S6_SEGMENT_TARGETS.get(segment, 1.0)
+                    multipliers[(sales, asset, segment)] = float(
+                        segment_targets.get(segment, S6_SEGMENT_TARGETS.get(segment, 1.0))
+                    )
         return multipliers
  
-    # Scenarios 2 and 5 balance Debt and Liquid around a fixed Equity ambition.
-    equity_mult = S2_EQUITY_TARGET if scenario_id == 2 else S5_EQUITY_TARGET
-    overall_mult = S2_OVERALL_TARGET if scenario_id == 2 else S5_OVERALL_TARGET
+    # Scenarios 2 and 5 balance Debt and Liquid around editable Equity / Overall ambitions.
+    default_equity = S2_EQUITY_TARGET if scenario_id == 2 else S5_EQUITY_TARGET
+    default_overall = S2_OVERALL_TARGET if scenario_id == 2 else S5_OVERALL_TARGET
+    equity_mult = float(params.get("equity_target", default_equity))
+    overall_mult = float(params.get("overall_target", default_overall))
  
     for sales in SALES_TYPES:
         targets = {
@@ -1501,7 +1489,7 @@ def apply_scenario_grid(
     """Evaluate scenarios 1-6 over every cell of the base grid."""
     kind = SCENARIOS[scenario_id]["kind"]
     dip = float(params.get("dip", 0.0)) if scenario_id == 3 else 0.0
-    uplift = S1_RUNRATE_UPLIFT if scenario_id == 1 else None
+    uplift = float(params.get("runrate_uplift", S1_RUNRATE_UPLIFT)) if scenario_id == 1 else None
  
     results: List[Dict[str, Any]] = []
     for row in grid.to_dict("records"):
@@ -1544,7 +1532,7 @@ def summarize_cells(subset: pd.DataFrame) -> Dict[str, Any]:
 # --- Named scenario entry points (thin wrappers over the shared engine) -------
  
 def _scenario_frame(grid: pd.DataFrame, scenario_id: int, params: Dict[str, Any]) -> pd.DataFrame:
-    return apply_scenario_grid(grid, scenario_id, params, scenario_multipliers(grid, scenario_id))
+    return apply_scenario_grid(grid, scenario_id, params, scenario_multipliers(grid, scenario_id, params))
  
  
 def calculate_scenario_1(grid: pd.DataFrame, params: Dict[str, Any]) -> pd.DataFrame:
@@ -1885,7 +1873,7 @@ class ScenarioModel:
         self.meta = SCENARIOS[scenario_id]
         self.grid = grid
         self.params = params
-        self.multipliers = scenario_multipliers(grid, scenario_id)
+        self.multipliers = scenario_multipliers(grid, scenario_id, params)
         self._cache: Dict[Tuple, Dict[str, Any]] = {}
         if scenario_id == 7:
             self.scenario_grid = None
@@ -2098,7 +2086,17 @@ def final_sales_metrics(
     # Preserve management ordering and avoid accidental duplicate rows.
     frame = frame.loc[~frame.index.duplicated(keep="first")].copy()
     order = [label for label in FINAL_METRIC_ROWS if label in frame.index]
-    return frame.loc[order]
+    frame = frame.loc[order].copy()
+
+    # Always recalculate run-rate metrics from FINAL Target + YTD before display.
+    # This deliberately overrides any older Target/12 workbook/dashboard value.
+    # For the current workbook: months_done=3, so required RR = (Target - YTD) / 9.
+    frame_for_calc = frame.reset_index()
+    first_col = frame_for_calc.columns[0]
+    if first_col != "Metric":
+        frame_for_calc = frame_for_calc.rename(columns={first_col: "Metric"})
+    frame = _augment_final_runrate(frame_for_calc, months_done).set_index("Metric")
+    return frame
  
  
 def build_final_scenario_comparison(
@@ -2248,32 +2246,24 @@ def build_comparison(model: ScenarioModel) -> Tuple[pd.DataFrame, Dict[str, str]
  
  
 def build_revenue_impact(model: ScenarioModel, basis: str) -> Tuple[pd.DataFrame, Dict[str, str]]:
-    """Revenue by asset class - never a blended rate."""
+    """Current and expected revenue by asset class - never a blended rate."""
     bundle = revenue_bundle(model, basis)
     rows = []
     for asset in ASSETS:
         rows.append({
             "Asset Class": asset,
-            "Scenario Sales": bundle["scenario"]["sales_by_asset"][asset],
-            "Revenue Rate": f"{REVENUE_BPS[asset]:.0f} bps",
-            "Scenario Revenue": bundle["scenario"]["by_asset"][asset],
-            "Baseline Revenue": bundle["baseline"]["by_asset"][asset],
-            "Incremental Revenue": bundle["incremental"]["by_asset"][asset],
-            "Revenue Contribution %": bundle["incremental"]["contribution"][asset],
+            "Current Revenue": bundle["baseline"]["by_asset"][asset],
+            "Expected Revenue": bundle["scenario"]["by_asset"][asset],
         })
     rows.append({
         "Asset Class": "Total",
-        "Scenario Sales": sum(_z(v) for v in bundle["scenario"]["sales_by_asset"].values()),
-        "Revenue Rate": "\u2014",
-        "Scenario Revenue": bundle["scenario"]["total"],
-        "Baseline Revenue": bundle["baseline"]["total"],
-        "Incremental Revenue": bundle["incremental"]["total"],
-        "Revenue Contribution %": 1.0 if bundle["scenario"]["total"] else None,
+        "Current Revenue": bundle["baseline"]["total"],
+        "Expected Revenue": bundle["scenario"]["total"],
     })
     formats = {
-        "Asset Class": "txt", "Scenario Sales": "cr", "Revenue Rate": "txt",
-        "Scenario Revenue": "cr1", "Baseline Revenue": "cr1",
-        "Incremental Revenue": "cr1_signed", "Revenue Contribution %": "pct",
+        "Asset Class": "txt",
+        "Current Revenue": "cr1",
+        "Expected Revenue": "cr1",
     }
     return pd.DataFrame(rows), formats
  
@@ -2607,8 +2597,8 @@ def build_scenario_guide(model: ScenarioModel, basis: str) -> pd.DataFrame:
  
  
 def scenario_default_params(scenario_id: int) -> Dict[str, Any]:
-    """Defaults exactly from the existing scenario engine configuration."""
-    return {
+    """Editable defaults for the selected scenario."""
+    params: Dict[str, Any] = {
         "dip": S3_DEFAULT_DIP,
         "jan_target": S7_DEFAULT_JAN_TARGET,
         "mar_target": S7_DEFAULT_MAR_TARGET,
@@ -2619,6 +2609,21 @@ def scenario_default_params(scenario_id: int) -> Dict[str, Any]:
         "optimizer_target": 1.20,
         "channel_mapping": {},
     }
+    if scenario_id == 1:
+        params["runrate_uplift"] = S1_RUNRATE_UPLIFT
+    elif scenario_id == 2:
+        params["overall_target"] = S2_OVERALL_TARGET
+        params["equity_target"] = S2_EQUITY_TARGET
+    elif scenario_id == 3:
+        params["target_pct"] = S3_TARGET
+    elif scenario_id == 4:
+        params["target_pct"] = S4_TARGET
+    elif scenario_id == 5:
+        params["overall_target"] = S5_OVERALL_TARGET
+        params["equity_target"] = S5_EQUITY_TARGET
+    elif scenario_id == 6:
+        params["segment_targets"] = dict(S6_SEGMENT_TARGETS)
+    return params
  
  
 def build_all_scenario_matrix(
@@ -2648,9 +2653,10 @@ def build_all_scenario_matrix(
         try:
             model = ScenarioModel(sid, filtered_grid, params)
             cell = model.cell(sales_key, asset=None if asset == "All" else asset)
+            live_strategy = _active_scenario_copy(model)["name"] if sid == selected_scenario_id else SCENARIOS[sid]["name"]
             rows.append({
                 "Scenario": f"{sid:02d} · {SCENARIOS[sid]['short']}",
-                "Strategy": SCENARIOS[sid]["name"],
+                "Strategy": live_strategy,
                 "FY Target": cell.get("fy_target"),
                 "Current YTD": cell.get("ytd_ach"),
                 "Current March Projection": cell.get("current_march"),
@@ -3253,12 +3259,307 @@ a, a:visited { color: var(--gold-soft); }
     gap: 16px;
     margin-bottom: 8px;
 }
+.hero-grid.no-aum {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
 .trio-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
     gap: 14px;
 }
  
+/* ---------- text-overlap safety (layout/colors unchanged) ---------- */
+.glass-card, .glass-panel, .glass-kpi,
+.kpi-grid > *, .hero-grid > *, .trio-grid > *,
+.kpi-head, .kpi-row, .progress-legend, .exec-header > *, .exec-status > * {
+    min-width: 0;
+}
+.metric-label, .metric-hero, .metric-value, .metric-secondary, .metric-delta,
+.kpi-row .k, .kpi-row .v, .scenario-hero .title, .scenario-hero .thesis,
+.scenario-hero .detail, .scenario-hero .milestone, .glass-note, .glass-callout,
+.exec-title, .exec-sub, .status-chip .v {
+    overflow-wrap: anywhere;
+    word-break: normal;
+}
+.kpi-row .k { flex: 1 1 auto; }
+.kpi-row .v { flex: 0 1 52%; text-align: right; }
+.progress-legend { gap: 10px; flex-wrap: wrap; }
+.progress-legend span:last-child { margin-left: auto; text-align: right; }
+div[role="radiogroup"] > label { max-width: 100%; }
+div[role="radiogroup"] > label div[data-testid="stMarkdownContainer"] p {
+    white-space: normal !important;
+    overflow-wrap: anywhere;
+}
+.stTabs [data-baseweb="tab"] {
+    min-width: 0;
+    white-space: normal;
+    text-align: center;
+}
+
+/* ---------- Streamlit text/icon overlap hardening ---------- */
+/*
+   IMPORTANT: On some corporate machines the Material Symbols web-font is
+   blocked. Streamlit then paints the icon name itself (for example
+   "keyboard_arrow_right") inside sidebar expanders. The long fallback text
+   sits on top of labels such as "Segment mapping" / "Channel mapping".
+
+   This patch does not redesign the sidebar. It removes only the broken icon
+   glyph and gives the expander label its own protected column.
+*/
+[data-testid="stExpander"] summary {
+    min-width: 0 !important;
+}
+
+/* Catch current and older Streamlit Material-icon wrappers. */
+[data-testid="stExpander"] summary [data-testid="stExpanderToggleIcon"],
+[data-testid="stExpander"] summary [data-testid="stIconMaterial"],
+[data-testid="stExpander"] summary [aria-hidden="true"],
+[data-testid="stExpander"] summary span[class*="material-symbol"],
+[data-testid="stExpander"] summary span[class*="material-icon"] {
+    font-size: 0 !important;
+    line-height: 0 !important;
+    letter-spacing: 0 !important;
+    text-indent: -9999px !important;
+    color: transparent !important;
+    overflow: hidden !important;
+    white-space: nowrap !important;
+    max-width: 18px !important;
+}
+
+/* Strong fallback for the exact sidebar overlap shown in the screenshot.
+   Streamlit places the expander toggle before the label. If the toggle loses
+   its icon font, constrain that first control to a tiny fixed slot so its
+   literal fallback text can never cross into the label. */
+[data-testid="stSidebar"] [data-testid="stExpander"] summary {
+    display: grid !important;
+    grid-template-columns: 18px minmax(0, 1fr) !important;
+    align-items: center !important;
+    column-gap: 8px !important;
+    width: 100% !important;
+    overflow: hidden !important;
+}
+[data-testid="stSidebar"] [data-testid="stExpander"] summary > * {
+    min-width: 0 !important;
+}
+[data-testid="stSidebar"] [data-testid="stExpander"] summary > :first-child {
+    width: 18px !important;
+    min-width: 18px !important;
+    max-width: 18px !important;
+    height: 18px !important;
+    overflow: hidden !important;
+    font-size: 0 !important;
+    line-height: 0 !important;
+    letter-spacing: 0 !important;
+    text-indent: -9999px !important;
+    color: transparent !important;
+    white-space: nowrap !important;
+}
+[data-testid="stSidebar"] [data-testid="stExpander"] summary > :first-child * {
+    font-size: 0 !important;
+    line-height: 0 !important;
+    letter-spacing: 0 !important;
+    text-indent: -9999px !important;
+    color: transparent !important;
+    overflow: hidden !important;
+    white-space: nowrap !important;
+}
+/* Replace the missing Material glyph with a font-independent chevron. */
+[data-testid="stSidebar"] [data-testid="stExpander"] summary > :first-child::after {
+    content: "›";
+    display: block !important;
+    width: 18px !important;
+    height: 18px !important;
+    text-align: center !important;
+    text-indent: 0 !important;
+    font-family: Arial, sans-serif !important;
+    font-size: 17px !important;
+    font-weight: 600 !important;
+    line-height: 18px !important;
+    color: var(--secondary) !important;
+    transform-origin: 50% 50%;
+}
+[data-testid="stSidebar"] [data-testid="stExpander"] details[open] summary > :first-child::after {
+    transform: rotate(90deg);
+}
+
+/* Keep the actual expander title in its own column and allow wrapping. */
+[data-testid="stSidebar"] [data-testid="stExpander"] summary p,
+[data-testid="stSidebar"] [data-testid="stExpander"] summary div[data-testid="stMarkdownContainer"] {
+    min-width: 0 !important;
+    margin: 0 !important;
+    white-space: normal !important;
+    overflow-wrap: anywhere !important;
+    word-break: normal !important;
+    line-height: 1.3 !important;
+}
+
+[data-testid="stSidebar"] [data-testid="stWidgetLabel"],
+[data-testid="stSidebar"] [data-testid="stMarkdownContainer"],
+[data-testid="stSidebar"] [data-testid="stCaptionContainer"],
+[data-testid="stMetricLabel"],
+[data-testid="stMetricValue"] {
+    min-width: 0 !important;
+}
+
+[data-testid="stSidebar"] [data-testid="stWidgetLabel"] p,
+[data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p,
+[data-testid="stSidebar"] [data-testid="stCaptionContainer"] p,
+[data-testid="stMetricLabel"] p,
+[data-testid="stMetricValue"] > div {
+    white-space: normal !important;
+    overflow-wrap: anywhere !important;
+    word-break: normal !important;
+    line-height: 1.3 !important;
+}
+
+.stTabs [data-baseweb="tab-list"] {
+    flex-wrap: wrap !important;
+}
+
+/* ---------- Current Performance + asset contribution ---------- */
+.sales-kpi-card {
+    position: relative;
+}
+/* Gross and Net Sales use different accents while keeping the same card layout. */
+.sales-kpi-card.gross-sales-card {
+    border-color: rgba(105, 166, 255, 0.34);
+    background: linear-gradient(135deg, rgba(77, 143, 238, 0.13), rgba(255,255,255,0.035));
+}
+.sales-kpi-card.gross-sales-card .metric-hero { color: #8EC2FF; }
+.sales-kpi-card.gross-sales-card .kpi-tag {
+    color: #9BC8FF;
+    border-color: rgba(105, 166, 255, 0.30);
+}
+.sales-kpi-card.gross-sales-card .asset-contrib-details > summary {
+    border-color: rgba(105, 166, 255, 0.48);
+    background: rgba(105, 166, 255, 0.08);
+}
+.sales-kpi-card.gross-sales-card .asset-contrib-details > summary::after,
+.sales-kpi-card.gross-sales-card .asset-contrib-share { color: #8EC2FF; }
+
+.sales-kpi-card.net-sales-card {
+    border-color: rgba(99, 217, 154, 0.34);
+    background: linear-gradient(135deg, rgba(69, 176, 119, 0.13), rgba(255,255,255,0.035));
+}
+.sales-kpi-card.net-sales-card .metric-hero { color: #79E0AA; }
+.sales-kpi-card.net-sales-card .kpi-tag {
+    color: #79E0AA;
+    border-color: rgba(99, 217, 154, 0.30);
+}
+.sales-kpi-card.net-sales-card .asset-contrib-details > summary {
+    border-color: rgba(99, 217, 154, 0.48);
+    background: rgba(99, 217, 154, 0.08);
+}
+.sales-kpi-card.net-sales-card .asset-contrib-details > summary::after,
+.sales-kpi-card.net-sales-card .asset-contrib-share { color: #79E0AA; }
+
+.metric-hero-line {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+}
+.metric-hero-line .metric-hero {
+    min-width: 0;
+}
+.asset-contrib-details {
+    position: relative;
+    margin: 0;
+    padding: 0;
+}
+.asset-contrib-details > summary {
+    list-style: none;
+    width: 27px;
+    height: 27px;
+    min-width: 27px;
+    border: 1px solid rgba(216,183,106,0.48);
+    border-radius: 50%;
+    background: rgba(216,183,106,0.08);
+    cursor: pointer;
+    display: grid;
+    place-items: center;
+    user-select: none;
+    transition: background 160ms ease, border-color 160ms ease, transform 160ms ease;
+}
+.asset-contrib-details > summary::-webkit-details-marker { display: none; }
+.asset-contrib-details > summary::marker { content: ""; }
+.asset-contrib-details > summary::after {
+    content: "+";
+    color: var(--gold);
+    font-family: Arial, sans-serif;
+    font-size: 19px;
+    font-weight: 400;
+    line-height: 1;
+    transform: translateY(-1px);
+}
+.asset-contrib-details[open] > summary::after { content: "−"; }
+.asset-contrib-details > summary:hover {
+    background: rgba(216,183,106,0.15);
+    border-color: rgba(216,183,106,0.72);
+    transform: translateY(-1px);
+}
+.asset-contrib-panel {
+    position: absolute;
+    z-index: 50;
+    top: 36px;
+    right: 0;
+    width: min(310px, 72vw);
+    padding: 13px 14px;
+    border: 1px solid var(--border-strong);
+    border-radius: 14px;
+    background: rgba(13,14,18,0.97);
+    box-shadow: 0 18px 48px rgba(0,0,0,0.48), inset 0 1px 0 rgba(255,255,255,0.06);
+    backdrop-filter: blur(22px);
+    -webkit-backdrop-filter: blur(22px);
+}
+.asset-contrib-title {
+    color: var(--secondary);
+    font-size: 0.65rem;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    margin-bottom: 7px;
+}
+.asset-contrib-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 8px 0;
+    border-top: 1px solid rgba(255,255,255,0.055);
+}
+.asset-contrib-name {
+    color: var(--secondary);
+    font-size: 0.8rem;
+}
+.asset-contrib-values {
+    display: flex;
+    align-items: baseline;
+    justify-content: flex-end;
+    gap: 18px;
+    min-width: 0;
+}
+.asset-contrib-amount {
+    color: var(--text);
+    font-size: 0.82rem;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+}
+.asset-contrib-share {
+    color: var(--gold);
+    font-size: 0.74rem;
+    font-weight: 600;
+    min-width: 58px;
+    text-align: right;
+    padding-right: 2px;
+    font-variant-numeric: tabular-nums;
+}
+.asset-contrib-empty {
+    color: var(--secondary);
+    font-size: 0.76rem;
+    line-height: 1.45;
+}
+
 /* ---------- kpi card internals ---------- */
 .kpi-head {
     display: flex;
@@ -3365,6 +3666,75 @@ a, a:visited { color: var(--gold-soft); }
 }
 .inline-pill.gold { color: var(--gold); border-color: rgba(216,183,106,0.35); }
  
+
+/* ---------- scenario numeric emphasis ---------- */
+.scenario-kpi-grid .metric-value {
+    font-size: 2.20rem;
+    line-height: 1.03;
+    font-weight: 750;
+    letter-spacing: -0.025em;
+}
+.trio-grid .stage-card .metric-hero {
+    font-size: 2.35rem;
+    line-height: 1.02;
+}
+.trio-grid .stage-card .kpi-row .v {
+    font-size: 1.24rem;
+    line-height: 1.15;
+    font-weight: 750;
+}
+.scenario-table .glass-table td.amount {
+    font-size: 1.15rem;
+    line-height: 1.2;
+    font-weight: 750;
+    letter-spacing: -0.015em;
+}
+.revenue-table .glass-table tbody tr.total td {
+    font-size: 1.12rem;
+    font-weight: 800;
+}
+.revenue-table .glass-table tbody tr.total td.amount {
+    font-size: 1.34rem;
+    line-height: 1.15;
+}
+.revenue-compare-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+    align-items: stretch;
+    margin: 4px 0 14px 0;
+}
+.revenue-current-card { border-color: rgba(142,194,255,0.34); }
+.revenue-expected-card { border-color: rgba(121,224,170,0.38); }
+.revenue-current-card .revenue-compare-amount { color: #8EC2FF; }
+.revenue-expected-card .revenue-compare-amount { color: #79E0AA; }
+.revenue-compare-amount {
+    font-size: 2.70rem;
+    font-weight: 750;
+    letter-spacing: -0.035em;
+    line-height: 1.05;
+    margin-top: 10px;
+    font-variant-numeric: tabular-nums;
+}
+.revenue-bridge-card {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 16px 10px;
+}
+.revenue-bridge-delta {
+    font-size: 1.55rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+}
+@media (max-width: 800px) {
+    .revenue-compare-grid { grid-template-columns: 1fr; }
+    .revenue-bridge-card { padding: 4px 10px; }
+}
+
 /* ---------- scenario hero ---------- */
 .scenario-hero {
     background:
@@ -3659,7 +4029,7 @@ hr { border-color: var(--border) !important; }
     .exec-title { font-size: 1.85rem; }
 }
 @media (max-width: 760px) {
-    .hero-grid { grid-template-columns: 1fr; }
+    .hero-grid, .hero-grid.no-aum { grid-template-columns: 1fr; }
     .kpi-grid { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
     .metric-hero { font-size: 2.05rem; }
     .exec-header { flex-direction: column; align-items: flex-start; }
@@ -3676,74 +4046,6 @@ hr { border-color: var(--border) !important; }
 def inject_theme() -> None:
     """Inject the liquid-glass design system exactly once per run."""
     st.markdown(GLASS_CSS, unsafe_allow_html=True)
- 
- 
-# --- Plotly ------------------------------------------------------------------
- 
-def _build_plotly_template():
-    axis = dict(
-        gridcolor=GRID_LINE,
-        zerolinecolor=GRID_LINE,
-        linecolor="rgba(255,255,255,0.14)",
-        tickfont=dict(color=INK_SOFT, size=11),
-        title=dict(font=dict(color=INK_MUTED, size=11)),
-        showline=False,
-    )
-    return go.layout.Template(
-        layout=go.Layout(
-            paper_bgcolor="rgba(0,0,0,0)",
-            plot_bgcolor="rgba(0,0,0,0)",
-            font=dict(family=FONT_STACK, color=INK, size=12),
-            colorway=[GOLD, "#8E93A1", GREEN, "#7C7FE0", RED, "#5FB0C9"],
-            xaxis=axis,
-            yaxis=axis,
-            margin=dict(l=8, r=8, t=44, b=8),
-            hoverlabel=dict(
-                bgcolor="rgba(14,15,20,0.94)",
-                bordercolor="rgba(255,255,255,0.16)",
-                font=dict(color=INK, family=FONT_STACK, size=12),
-            ),
-            legend=dict(
-                orientation="h", yanchor="bottom", y=1.02, x=0,
-                bgcolor="rgba(0,0,0,0)", font=dict(color=INK_SOFT, size=11),
-            ),
-            title=dict(font=dict(color=INK, size=14), x=0, xanchor="left"),
-        )
-    )
- 
- 
-APPLE_PLOTLY_TEMPLATE = _build_plotly_template() if PLOTLY_AVAILABLE else None
-if PLOTLY_AVAILABLE:  # pragma: no cover - depends on optional dependency
-    pio.templates["apple_glass"] = APPLE_PLOTLY_TEMPLATE
-    pio.templates.default = "apple_glass"
- 
-PLOTLY_CONFIG = {"displayModeBar": False, "responsive": True}
- 
- 
-def _chart_kwargs() -> Dict[str, Any]:
-    """Keyword arguments st.plotly_chart accepts in this Streamlit version."""
-    kwargs: Dict[str, Any] = {}
-    try:
-        parameters = inspect.signature(st.plotly_chart).parameters
-    except (TypeError, ValueError):  # pragma: no cover - stubbed or exotic builds
-        return kwargs
-    if "theme" in parameters:
-        # None keeps the custom template; "streamlit" would override it.
-        kwargs["theme"] = None
-    if "config" in parameters:
-        kwargs["config"] = PLOTLY_CONFIG
-    stretch_default = "width" in parameters and parameters["width"].default == "stretch"
-    if "use_container_width" in parameters and not stretch_default:
-        kwargs["use_container_width"] = True
-    return kwargs
- 
- 
-def show_figure(fig: Any, height: int = 360) -> None:
-    """Render a Plotly figure with the shared executive styling."""
-    if fig is None:
-        return
-    fig.update_layout(template="apple_glass", height=height, autosize=True)
-    st.plotly_chart(fig, **_chart_kwargs())
  
  
 # --- Small HTML helpers -------------------------------------------------------
@@ -3833,7 +4135,7 @@ def kpi_tile_html(
     )
  
  
-def kpi_strip(tiles: Sequence[Dict[str, str]]) -> None:
+def kpi_strip(tiles: Sequence[Dict[str, str]], css_class: str = "") -> None:
     """Render a responsive row of glass KPI tiles from one markdown call."""
     if not tiles:
         return
@@ -3847,7 +4149,8 @@ def kpi_strip(tiles: Sequence[Dict[str, str]]) -> None:
         )
         for tile in tiles
     )
-    st.markdown(f"<div class='kpi-grid'>{cards}</div>", unsafe_allow_html=True)
+    classes = "kpi-grid" + (f" {css_class.strip()}" if css_class.strip() else "")
+    st.markdown(f"<div class='{classes}'>{cards}</div>", unsafe_allow_html=True)
  
  
 def _dataframe_kwargs() -> Dict[str, Any]:
@@ -3868,6 +4171,7 @@ def render_glass_table(
     total_rows: Sequence[str] = (),
     max_html_rows: int = 240,
     empty_message: str = "No rows for this selection.",
+    css_class: str = "",
 ) -> None:
     """Compact glass table: sticky header, right-aligned numbers, signed colour."""
     if frame is None or frame.empty:
@@ -3902,14 +4206,17 @@ def render_glass_table(
             classes = []
             if kind in NUMERIC_FORMATS:
                 classes.append("num")
+            if kind in AMOUNT_FORMATS:
+                classes.append("amount")
             if kind in SIGNED_FORMATS:
                 classes.append(_tone_for(frame.iloc[position][column]))
             css = f" class='{' '.join(classes)}'" if classes else ""
             cells.append(f"<td{css}>{escape(str(display.iloc[position][column]))}</td>")
         body_rows.append(f"<tr{row_class}>{''.join(cells)}</tr>")
  
+    wrapper_classes = "glass-table-wrap" + (f" {css_class.strip()}" if css_class.strip() else "")
     st.markdown(
-        "<div class='glass-table-wrap'><table class='glass-table'>"
+        f"<div class='{wrapper_classes}'><table class='glass-table'>"
         f"<thead><tr>{''.join(header_cells)}</tr></thead>"
         f"<tbody>{''.join(body_rows)}</tbody></table></div>",
         unsafe_allow_html=True,
@@ -3972,18 +4279,18 @@ def _kpi_row_html(label: str, value: str, css: str = "") -> str:
  
  
 def render_aum_hero(aum: pd.DataFrame) -> str:
-    """AUM card - the core business base, given the strongest visual weight."""
+    """AUM card shown only in Current Performance Metrics."""
     if not isinstance(aum, pd.DataFrame) or aum.empty or "Overall" not in aum.index:
         return (
             "<div class='glass-card'><div class='metric-label'>Assets under management</div>"
             "<div class='metric-hero'>—</div>"
             "<div class='metric-secondary'>AUM could not be located on the FINAL sheet.</div></div>"
         )
- 
+
     row = aum.loc["Overall"]
     achievement = _num(row.get("Achievement %"))
     gap = _num(row.get("Gap to Target"))
- 
+
     rows = "".join([
         _kpi_row_html("Target", fmt_cr(row.get("Target"))),
         _kpi_row_html(
@@ -3993,7 +4300,7 @@ def render_aum_hero(aum: pd.DataFrame) -> str:
         ),
         _kpi_row_html("Achieved", fmt_pct(achievement), "gold"),
     ])
- 
+
     return (
         "<div class='glass-card'>"
         "<div class='kpi-head'><span class='metric-label'>Assets under management</span>"
@@ -4008,13 +4315,60 @@ def render_aum_hero(aum: pd.DataFrame) -> str:
         )
         + f"<div class='kpi-rows'>{rows}</div></div>"
     )
- 
- 
-def render_sales_kpi_card(title: str, row: pd.Series) -> str:
-    """Gross / Net sales card: YTD is the hero, pace and projection support it."""
+
+
+def _asset_contribution_html(frame: pd.DataFrame) -> str:
+    """Expandable YTD contribution of Equity, Debt and Liquid to the sales total."""
+    if not isinstance(frame, pd.DataFrame) or frame.empty:
+        return (
+            "<div class='asset-contrib-empty'>"
+            "Asset-class contribution could not be located on the FINAL sheet."
+            "</div>"
+        )
+
+    total = None
+    if "Overall" in frame.index:
+        total = _num(frame.loc["Overall"].get("YTD"))
+
+    asset_values: List[Tuple[str, Optional[float]]] = []
+    for asset_name in FINAL_ASSET_ROWS:
+        value = None
+        if asset_name in frame.index:
+            value = _num(frame.loc[asset_name].get("YTD"))
+        asset_values.append((asset_name, value))
+
+    # If FINAL does not expose an Overall YTD value, fall back to the visible
+    # asset-class rows so the contribution percentages can still be calculated.
+    if total is None:
+        present_values = [value for _, value in asset_values if value is not None]
+        total = sum(present_values) if present_values else None
+
+    contribution_rows: List[str] = []
+    for asset_name, value in asset_values:
+        share = None
+        if value is not None and total is not None and total != 0:
+            share = value / total
+        contribution_rows.append(
+            "<div class='asset-contrib-row'>"
+            f"<span class='asset-contrib-name'>{escape(asset_name)}</span>"
+            "<span class='asset-contrib-values'>"
+            f"<span class='asset-contrib-amount'>{escape(fmt_cr(value))}</span>"
+            f"<span class='asset-contrib-share'>{escape(fmt_pct(share))}</span>"
+            "</span></div>"
+        )
+
+    return (
+        "<div class='asset-contrib-title'>YTD asset-class contribution</div>"
+        + "".join(contribution_rows)
+    )
+
+
+def render_sales_kpi_card(title: str, row: pd.Series, frame: pd.DataFrame) -> str:
+    """Gross / Net sales card with an inline + control for asset contribution."""
+    sales_card_class = "gross-sales-card" if title.strip().lower().startswith("gross") else "net-sales-card"
     if row is None or len(row) == 0:
         return (
-            f"<div class='glass-card'><div class='metric-label'>{escape(title)}</div>"
+            f"<div class='glass-card sales-kpi-card {sales_card_class}'><div class='metric-label'>{escape(title)}</div>"
             "<div class='metric-hero'>—</div>"
             "<div class='metric-secondary'>Metrics could not be located on the FINAL sheet.</div></div>"
         )
@@ -4022,7 +4376,14 @@ def render_sales_kpi_card(title: str, row: pd.Series) -> str:
     achievement = _num(row.get("Achievement %"))
     projected = _num(row.get("Projected FY %"))
     current_rr = _num(row.get("Current RR"))
-    required_rr = _num(row.get("Required RR to Target"))
+
+    # Recompute here as a final UI safeguard: remaining target / 9 remaining months.
+    # Example Net Sales: (58,699.46 - 17,852.62) / 9 = 4,538.54 Cr/month.
+    fy_target = _num(row.get("FY27 Target"))
+    ytd_value = _num(row.get("YTD"))
+    required_rr = None
+    if fy_target is not None and ytd_value is not None:
+        required_rr = (fy_target - ytd_value) / max(MONTHS_REMAINING, 1)
     pace_gap = None
     if current_rr is not None and required_rr is not None and required_rr != 0:
         pace_gap = current_rr / required_rr - 1.0
@@ -4042,12 +4403,20 @@ def render_sales_kpi_card(title: str, row: pd.Series) -> str:
             "pos" if (projected or 0) >= 1 else "neg",
         ),
     ])
+
+    contribution = _asset_contribution_html(frame)
  
     return (
-        "<div class='glass-card'>"
+        f"<div class='glass-card sales-kpi-card {sales_card_class}'>"
         f"<div class='kpi-head'><span class='metric-label'>{escape(title)}</span>"
         "<span class='kpi-tag'>FY27</span></div>"
+        "<div class='metric-hero-line'>"
         f"<div class='metric-hero'>{escape(fmt_cr(row.get('YTD')))}</div>"
+        "<details class='asset-contrib-details'>"
+        f"<summary title='Show {escape(title)} asset-class contribution' "
+        f"aria-label='Show {escape(title)} asset-class contribution'></summary>"
+        f"<div class='asset-contrib-panel'>{contribution}</div>"
+        "</details></div>"
         "<div class='metric-label'>Year to date</div>"
         + progress_html(
             achievement,
@@ -4072,20 +4441,23 @@ def render_current_performance(final_metrics: Dict[str, Any], model: ScenarioMod
         "Current Performance Metrics · FINAL",
         "Where the business stands before any scenario is applied",
     )
- 
+
     gs = final_sales_metrics(final_metrics, model, "GS")
     ns = final_sales_metrics(final_metrics, model, "NS")
     aum = final_metrics.get("AUM")
- 
-    cards = (
-        render_aum_hero(aum if isinstance(aum, pd.DataFrame) else pd.DataFrame())
-        + render_sales_kpi_card("Gross Sales", _overall_row(gs))
-        + render_sales_kpi_card("Net Sales", _overall_row(ns))
-    )
+    aum_frame = aum if isinstance(aum, pd.DataFrame) else pd.DataFrame()
+
+    # Current Performance Metrics must always contain these three cards in this
+    # order: AUM, Gross Sales, Net Sales. AUM remains excluded from the separate
+    # Business Drivers section, as requested.
+    aum_card = render_aum_hero(aum_frame)
+    gross_card = render_sales_kpi_card("Gross Sales", _overall_row(gs), gs)
+    net_card = render_sales_kpi_card("Net Sales", _overall_row(ns), ns)
+    cards = aum_card + gross_card + net_card
     st.markdown(f"<div class='hero-grid'>{cards}</div>", unsafe_allow_html=True)
- 
+
     gs_row, ns_row = _overall_row(gs), _overall_row(ns)
-    aum_row = _overall_row(aum)
+    aum_row = _overall_row(aum_frame)
     tiles = [
         {
             "label": "AUM gap to target",
@@ -4128,48 +4500,18 @@ def render_current_performance(final_metrics: Dict[str, Any], model: ScenarioMod
         "<b>FINAL</b> sheet. Achievement, run rate and projected FY are derived from those "
         "same Target and YTD values."
     )
- 
- 
-def driver_chart(frame: pd.DataFrame, selected: str, title: str) -> Any:
-    """Projected FY % by driver, with the 100% target as the reference line."""
-    if not PLOTLY_AVAILABLE or frame.empty:
-        return None
-    labels = frame.index.tolist()
-    values = [(_num(frame.loc[label].get("Projected FY %")) or 0.0) * 100.0 for label in labels]
-    colors = [
-        GOLD if label == selected else "rgba(255,255,255,0.24)"
-        for label in labels
-    ]
-    fig = go.Figure(
-        go.Bar(
-            x=labels,
-            y=values,
-            marker=dict(color=colors, line=dict(width=0)),
-            hovertemplate="%{x}<br>Projected FY %{y:.1f}%<extra></extra>",
-        )
-    )
-    fig.add_hline(
-        y=100,
-        line=dict(color="rgba(255,255,255,0.35)", width=1, dash="dot"),
-        annotation_text="FY target",
-        annotation_position="top left",
-        annotation_font=dict(color=INK_MUTED, size=10),
-    )
-    fig.update_layout(title=title, yaxis_title="Projected FY %")
-    return fig
- 
- 
+
 def render_business_driver_selector(
     final_metrics: Dict[str, Any],
     model: ScenarioModel,
 ) -> None:
-    """03 · Business drivers - asset class and channel, straight from FINAL."""
+    """03 · Business drivers - shown only by Asset Class and Channel."""
     section_header(
         "03",
         "Business drivers",
-        "Which asset classes and channels are carrying the year",
+        "Performance is segregated only by asset class and channel",
     )
- 
+
     st.markdown("<div class='metric-label'>Sales basis</div>", unsafe_allow_html=True)
     basis_label = st.radio(
         "Sales basis",
@@ -4181,40 +4523,28 @@ def render_business_driver_selector(
     )
     basis = "GS" if basis_label == SALES_LABEL["GS"] else "NS"
     st.session_state["display_basis"] = basis
- 
+
     frame = final_sales_metrics(final_metrics, model, basis)
     if frame.empty:
         glass_note("Driver metrics could not be located on the FINAL sheet.")
         return
- 
-    available = [label for label in FINAL_METRIC_ROWS if label in frame.index]
-    reset_stale_selection(f"driver_lens_{basis}", available)
-    st.markdown("<div class='metric-label'>Driver</div>", unsafe_allow_html=True)
-    selected = st.radio(
-        "Driver",
-        available,
-        index=0,
-        horizontal=True,
-        key=f"driver_lens_{basis}",
-        label_visibility="collapsed",
-    )
- 
-    row = frame.loc[selected]
-    projected = _num(row.get("Projected FY %"))
+
+    overall = _overall_row(frame)
+    projected = _num(overall.get("Projected FY %"))
     kpi_strip([
-        {"label": f"{selected} · FY27 target", "value": fmt_cr(row.get("FY27 Target"))},
+        {"label": "FY27 target", "value": fmt_cr(overall.get("FY27 Target"))},
         {
             "label": "YTD",
-            "value": fmt_cr(row.get("YTD")),
-            "delta": fmt_pct(row.get("Achievement %")),
+            "value": fmt_cr(overall.get("YTD")),
+            "delta": fmt_pct(overall.get("Achievement %")),
             "tone": "gold",
             "secondary": "of FY27 target booked",
         },
-        {"label": "Current run rate", "value": fmt_cr(row.get("Current RR"))},
+        {"label": "Current run rate", "value": fmt_cr(overall.get("Current RR"))},
         {
             "label": "Required run rate",
-            "value": fmt_cr(row.get("Required RR to Target")),
-            "secondary": "Target ÷ 12 months",
+            "value": fmt_cr(overall.get("Required RR to Target")),
+            "secondary": "(Target − YTD) ÷ 9 remaining months",
         },
         {
             "label": "Projected FY",
@@ -4223,13 +4553,7 @@ def render_business_driver_selector(
             "tone": _tone_for(None if projected is None else projected - 1.0),
         },
     ])
- 
-    figure = driver_chart(frame, selected, f"{SALES_LABEL[basis]} · projected FY by driver")
-    if figure is not None:
-        show_figure(figure, height=330)
-    elif not frame.empty:
-        st.bar_chart(frame[["Projected FY %"]])
- 
+
     display_columns = [
         "FY27 Target", "YTD", "Achievement %", "Current RR",
         "Required RR to Target", "Estimated FY @ Current RR", "Projected FY %",
@@ -4239,41 +4563,28 @@ def render_business_driver_selector(
         "Current RR": "cr", "Required RR to Target": "cr",
         "Estimated FY @ Current RR": "cr", "Projected FY %": "pct",
     }
- 
+
     asset_frame = frame.loc[[i for i in FINAL_ASSET_ROWS if i in frame.index]]
     channel_frame = frame.loc[[i for i in FINAL_CHANNEL_ROWS if i in frame.index]]
- 
-    tabs = st.tabs(["Asset class", "Channel", "AUM"])
+
+    tabs = st.tabs(["Asset class", "Channel"])
     with tabs[0]:
-        render_glass_table(
-            asset_frame.reset_index().rename(columns={"Metric": "Scope"})[["Scope", *display_columns]],
-            formats,
-        )
-    with tabs[1]:
-        render_glass_table(
-            channel_frame.reset_index().rename(columns={"Metric": "Scope"})[["Scope", *display_columns]],
-            formats,
-        )
-    with tabs[2]:
-        aum = final_metrics.get("AUM")
-        if not isinstance(aum, pd.DataFrame) or aum.empty:
-            glass_note("AUM metrics could not be located on the FINAL sheet.")
+        if asset_frame.empty:
+            glass_note("Asset-class metrics could not be located on the FINAL sheet.")
         else:
-            aum_display = aum.reset_index().rename(columns={"Metric": "Scope"})
             render_glass_table(
-                aum_display,
-                {
-                    "Scope": "txt", "Target": "cr", "Current": "cr",
-                    "Achievement %": "pct", "Gap to Target": "cr_signed",
-                },
-                total_rows=("Overall",),
+                asset_frame.reset_index().rename(columns={"Metric": "Scope"})[["Scope", *display_columns]],
+                formats,
             )
-            glass_note(
-                "AUM keeps the FINAL sheet's own Target and Current columns; "
-                "achievement and gap are derived from those two values."
+    with tabs[1]:
+        if channel_frame.empty:
+            glass_note("Channel metrics could not be located on the FINAL sheet.")
+        else:
+            render_glass_table(
+                channel_frame.reset_index().rename(columns={"Metric": "Scope"})[["Scope", *display_columns]],
+                formats,
             )
- 
- 
+
 # =============================================================================
 # 16. ANALYSIS SCOPE & CURRENT RUN RATE
 # =============================================================================
@@ -4313,13 +4624,13 @@ def apply_management_cuts(records: pd.DataFrame, channel: str, location: str) ->
 def render_analysis_scope(records: pd.DataFrame) -> Tuple[str, str, str, pd.DataFrame]:
     """
     Scope controls that recalculate the analytical engine.
- 
-    Channel and location filter the RM calculation sheets; asset class selects
-    the metric that every downstream card reports on.
+
+    Channel and location remain as existing filters. Asset-class results are
+    shown together downstream instead of forcing an Equity / Debt / Liquid drill-down.
     """
     st.markdown("<div class='metric-label'>Analysis scope</div>", unsafe_allow_html=True)
-    left, middle, right = st.columns([1, 1, 1])
- 
+    left, middle = st.columns([1, 1])
+
     with left:
         present = set(records.get("Vertical", pd.Series(dtype=str)).astype(str))
         channel_options = ["All"] + [v for v in VERTICALS if v in present]
@@ -4331,14 +4642,13 @@ def render_analysis_scope(records: pd.DataFrame) -> Tuple[str, str, str, pd.Data
         location = st.selectbox(
             "Location / market type", location_options, index=0, key="scope_location"
         )
-    with right:
-        asset = st.selectbox("Asset class", ["All", *ASSETS], index=0, key="scope_asset")
- 
+
+    # Asset classes stay together; no Equity / Debt / Liquid selector.
+    asset = "All"
     filtered = apply_management_cuts(records, channel, location)
- 
+
     active = [x for x in (
         channel if channel != "All" else None,
-        asset if asset != "All" else None,
         location if location != "All" else None,
     ) if x]
     scope_text = " · ".join(active) if active else "All business"
@@ -4348,7 +4658,7 @@ def render_analysis_scope(records: pd.DataFrame) -> Tuple[str, str, str, pd.Data
         "Every scenario below is recalculated on this population.</div>",
         unsafe_allow_html=True,
     )
- 
+
     if filtered.empty:
         glass_callout(
             "No RM records match this scope. Widen the channel or location selection "
@@ -4356,58 +4666,30 @@ def render_analysis_scope(records: pd.DataFrame) -> Tuple[str, str, str, pd.Data
             tone="warn",
         )
     return channel, location, asset, filtered
- 
- 
-def pace_figure(grid: pd.DataFrame, basis: str) -> Any:
-    """Current pace against the pace the FY target requires, by asset class."""
-    if not PLOTLY_AVAILABLE or grid.empty:
-        return None
-    labels, current, required = [], [], []
-    for asset in ASSETS:
-        base = summarize_current(grid, sales=basis, asset=asset)
-        labels.append(asset)
-        current.append(_z(base.get("current_rr")))
-        required.append(_z(base.get("fy_target")) / 12.0)
-    fig = go.Figure()
-    fig.add_trace(go.Bar(
-        y=labels, x=current, orientation="h", name="Current run rate",
-        marker=dict(color="rgba(255,255,255,0.26)", line=dict(width=0)),
-        hovertemplate="%{y} · current %{x:,.0f} Cr<extra></extra>",
-    ))
-    fig.add_trace(go.Bar(
-        y=labels, x=required, orientation="h", name="Required run rate",
-        marker=dict(color=GOLD, line=dict(width=0)), opacity=0.92,
-        hovertemplate="%{y} · required %{x:,.0f} Cr<extra></extra>",
-    ))
-    fig.update_layout(
-        barmode="group",
-        bargap=0.35,
-        title=f"{SALES_LABEL[basis]} · monthly pace by asset class (\u20b9 Cr)",
-    )
-    return fig
- 
- 
+
 def render_current_runrate(grid: pd.DataFrame, basis: str, asset: str) -> None:
-    """04 · Current pace, required pace and the projected finish for the scope."""
+    """04 · Current pace, required pace and projected finish. Graph removed."""
     section_header(
         "04",
         "Current run rate & target gap",
         "The pace the business is running at, against the pace the target needs",
     )
- 
+
     if grid.empty:
         glass_note("No records in scope, so the current run rate cannot be calculated.")
         return
- 
+
     cell = summarize_current(grid, sales=basis, asset=None if asset == "All" else asset)
-    required_rr = _z(cell.get("fy_target")) / 12.0
+    required_rr = (
+        _z(cell.get("fy_target")) - _z(cell.get("ytd_ach"))
+    ) / max(MONTHS_REMAINING, 1)
     current_rr = _num(cell.get("current_rr"))
     pace_gap = None
     if current_rr is not None and required_rr:
         pace_gap = current_rr / required_rr - 1.0
     projected = _num(cell.get("current_march_pct"))
     shortfall = _z(cell.get("fy_target")) - _z(cell.get("current_march"))
- 
+
     kpi_strip([
         {"label": "FY target", "value": fmt_cr(cell.get("fy_target")),
          "secondary": f"{SALES_LABEL[basis]} · RM calculation sheets"},
@@ -4418,7 +4700,7 @@ def render_current_runrate(grid: pd.DataFrame, basis: str, asset: str) -> None:
          "secondary": "YTD ÷ 3 completed months"},
         {"label": "Required run rate", "value": fmt_cr(required_rr),
          "delta": fmt_pct_signed(pace_gap), "tone": _tone_for(pace_gap),
-         "secondary": "pace gap on today's run rate"},
+         "secondary": "remaining FY target ÷ remaining months"},
         {"label": "Projected March", "value": fmt_pct(projected),
          "delta": fmt_pts(None if projected is None else projected - 1.0),
          "tone": _tone_for(None if projected is None else projected - 1.0),
@@ -4427,153 +4709,318 @@ def render_current_runrate(grid: pd.DataFrame, basis: str, asset: str) -> None:
          "tone": _tone_for(-shortfall),
          "secondary": "FY target less projected March"},
     ])
- 
-    figure = pace_figure(grid, basis)
-    if figure is not None:
-        show_figure(figure, height=300)
-    else:
-        frame = pd.DataFrame(
-            {
-                "Current run rate": [
-                    _z(summarize_current(grid, sales=basis, asset=a).get("current_rr")) for a in ASSETS
-                ],
-                "Required run rate": [
-                    _z(summarize_current(grid, sales=basis, asset=a).get("fy_target")) / 12.0
-                    for a in ASSETS
-                ],
-            },
-            index=ASSETS,
-        )
-        st.bar_chart(frame)
- 
+
     glass_note(
         "The current run rate is the completed Apr–Jun achievement divided by three. "
-        "The required run rate is the FY target spread evenly across twelve months."
+        "The required run rate is the remaining FY target (Target − YTD) divided by the 9 remaining months."
     )
- 
- 
+
 # =============================================================================
 # 17. SCENARIO PLANNING COMPONENTS
 # =============================================================================
  
 def render_scenario_navigator() -> int:
-    """05 · Horizontal glass scenario navigator."""
+    """05 · Scenario planning header; selection now lives only in the sidebar."""
     section_header(
         "05",
         "Scenario planning",
         "What changes if the organisation changes the trajectory",
     )
-    options = [f"{sid:02d}  {SCENARIOS[sid]['short']}" for sid in SCENARIO_ORDER]
-    choice = st.radio(
-        "Scenario",
-        options,
-        index=SCENARIO_ORDER.index(st.session_state.get("scenario_id", 1)),
-        horizontal=True,
-        key="scenario_navigator",
-        label_visibility="collapsed",
-    )
-    scenario_id = SCENARIO_ORDER[options.index(choice)]
-    st.session_state["scenario_id"] = scenario_id
+    scenario_id = int(st.session_state.get("scenario_id", 1))
+    if scenario_id not in SCENARIO_ORDER:
+        scenario_id = 1
+        st.session_state["scenario_id"] = scenario_id
     return scenario_id
  
  
+def _pct_input(label: str, default_fraction: float, key: str, min_value: float = 0.0, max_value: float = 300.0, step: float = 1.0) -> float:
+    """Editable percentage field; returns a fraction used by the scenario engine."""
+    value = st.number_input(
+        label,
+        min_value=float(min_value),
+        max_value=float(max_value),
+        value=float(default_fraction * 100.0),
+        step=float(step),
+        format="%.1f",
+        key=key,
+    )
+    return float(value) / 100.0
+
+
 def render_scenario_controls(scenario_id: int, base_params: Dict[str, Any]) -> Dict[str, Any]:
-    """Only the assumptions the selected scenario actually uses."""
+    """Editable percentage assumptions for every scenario."""
     params = dict(base_params)
- 
-    if scenario_id == 3:
-        with st.expander("Scenario assumptions", expanded=True):
-            params["dip"] = st.slider(
-                "February–March run-rate dip", 0, 60, int(S3_DEFAULT_DIP * 100), 5,
-                format="%d%%", key="s3_dip",
-            ) / 100.0
- 
-    elif scenario_id == 7:
-        with st.expander("Scenario assumptions", expanded=True):
-            columns = st.columns(3)
-            params["jan_target"] = columns[0].slider(
-                "January achievement target", 90, 120, int(S7_DEFAULT_JAN_TARGET * 100), 1,
-                format="%d%%", key="s7_jan",
-            ) / 100.0
-            params["mar_target"] = columns[1].slider(
-                "March achievement target", 90, 120, int(S7_DEFAULT_MAR_TARGET * 100), 1,
-                format="%d%%", key="s7_mar",
-            ) / 100.0
-            params["leakage"] = columns[2].slider(
-                "February–March AUM leakage", 0, 30, int(S7_DEFAULT_LEAKAGE * 100), 1,
-                format="%d%%", key="s7_leak",
-            ) / 100.0
- 
-    elif scenario_id == 8:
-        with st.expander("Channel assumptions", expanded=False):
-            params["leakage"] = st.slider(
-                "February–March AUM leakage", 0, 30, int(S8_DEFAULT_LEAKAGE * 100), 1,
-                format="%d%%", key="s8_leakage",
-            ) / 100.0
-            growth = dict(params.get("channel_growth", S8_DEFAULT_GROWTH))
-            jan_targets = dict(params.get("channel_jan_target", S8_DEFAULT_JAN_TARGET))
-            mar_targets = dict(params.get("channel_mar_target", S8_DEFAULT_MAR_TARGET))
-            for channel in CHANNELS:
-                st.markdown(
-                    f"<div class='metric-label' style='margin-top:10px'>{escape(channel)}</div>",
-                    unsafe_allow_html=True,
+
+    with st.expander("Scenario assumptions · editable", expanded=True):
+        if scenario_id == 1:
+            params["runrate_uplift"] = _pct_input(
+                "Run-rate uplift %", float(base_params.get("runrate_uplift", S1_RUNRATE_UPLIFT)),
+                "s1_uplift", 0.0, 200.0,
+            )
+
+        elif scenario_id == 2:
+            columns = st.columns(2)
+            with columns[0]:
+                params["overall_target"] = _pct_input(
+                    "Overall target by January %", float(base_params.get("overall_target", S2_OVERALL_TARGET)),
+                    "s2_overall", 0.0, 250.0,
                 )
+            with columns[1]:
+                params["equity_target"] = _pct_input(
+                    "Equity target by January %", float(base_params.get("equity_target", S2_EQUITY_TARGET)),
+                    "s2_equity", 0.0, 300.0,
+                )
+
+        elif scenario_id == 3:
+            columns = st.columns(2)
+            with columns[0]:
+                params["target_pct"] = _pct_input(
+                    "January target achievement %", float(base_params.get("target_pct", S3_TARGET)),
+                    "s3_target", 0.0, 300.0,
+                )
+            with columns[1]:
+                params["dip"] = _pct_input(
+                    "February–March run-rate dip %", float(base_params.get("dip", S3_DEFAULT_DIP)),
+                    "s3_dip", 0.0, 100.0,
+                )
+
+        elif scenario_id == 4:
+            params["target_pct"] = _pct_input(
+                "March target achievement %", float(base_params.get("target_pct", S4_TARGET)),
+                "s4_target", 0.0, 300.0,
+            )
+
+        elif scenario_id == 5:
+            columns = st.columns(2)
+            with columns[0]:
+                params["overall_target"] = _pct_input(
+                    "Overall March target %", float(base_params.get("overall_target", S5_OVERALL_TARGET)),
+                    "s5_overall", 0.0, 300.0,
+                )
+            with columns[1]:
+                params["equity_target"] = _pct_input(
+                    "Equity March target %", float(base_params.get("equity_target", S5_EQUITY_TARGET)),
+                    "s5_equity", 0.0, 350.0,
+                )
+
+        elif scenario_id == 6:
+            defaults = dict(base_params.get("segment_targets", S6_SEGMENT_TARGETS))
+            columns = st.columns(3)
+            edited: Dict[str, float] = {}
+            for idx, segment in enumerate(SEGMENT_ORDER):
+                with columns[idx]:
+                    edited[segment] = _pct_input(
+                        f"{segment} March target %",
+                        float(defaults.get(segment, S6_SEGMENT_TARGETS.get(segment, 1.0))),
+                        f"s6_{segment.lower().replace(' ', '_')}", 0.0, 400.0,
+                    )
+            params["segment_targets"] = edited
+
+        elif scenario_id == 7:
+            columns = st.columns(3)
+            with columns[0]:
+                params["jan_target"] = _pct_input(
+                    "January achievement target %", float(base_params.get("jan_target", S7_DEFAULT_JAN_TARGET)),
+                    "s7_jan", 0.0, 300.0,
+                )
+            with columns[1]:
+                params["mar_target"] = _pct_input(
+                    "March achievement target %", float(base_params.get("mar_target", S7_DEFAULT_MAR_TARGET)),
+                    "s7_mar", 0.0, 300.0,
+                )
+            with columns[2]:
+                params["leakage"] = _pct_input(
+                    "February–March leakage %", float(base_params.get("leakage", S7_DEFAULT_LEAKAGE)),
+                    "s7_leak", 0.0, 100.0,
+                )
+
+        elif scenario_id == 8:
+            params["leakage"] = _pct_input(
+                "February–March leakage %", float(base_params.get("leakage", S8_DEFAULT_LEAKAGE)),
+                "s8_leakage", 0.0, 100.0,
+            )
+            growth = dict(base_params.get("channel_growth", S8_DEFAULT_GROWTH))
+            jan_targets = dict(base_params.get("channel_jan_target", S8_DEFAULT_JAN_TARGET))
+            mar_targets = dict(base_params.get("channel_mar_target", S8_DEFAULT_MAR_TARGET))
+            st.markdown("<div class='metric-secondary'>Monthly growth % · January target % · March target %</div>", unsafe_allow_html=True)
+            for channel in CHANNELS:
+                st.markdown(f"<div class='metric-label' style='margin-top:12px'>{escape(channel)}</div>", unsafe_allow_html=True)
                 columns = st.columns(3)
-                growth[channel] = columns[0].slider(
-                    "Monthly growth", -20, 30, int(S8_DEFAULT_GROWTH[channel] * 100), 1,
-                    format="%d%%", key=f"s8_g_{channel}", label_visibility="collapsed",
-                ) / 100.0
-                jan_targets[channel] = columns[1].slider(
-                    "January 2027", 80, 180, int(S8_DEFAULT_JAN_TARGET[channel] * 100), 1,
-                    format="%d%%", key=f"s8_j_{channel}", label_visibility="collapsed",
-                ) / 100.0
-                mar_targets[channel] = columns[2].slider(
-                    "March 2027", 80, 200, int(S8_DEFAULT_MAR_TARGET[channel] * 100), 1,
-                    format="%d%%", key=f"s8_m_{channel}", label_visibility="collapsed",
-                ) / 100.0
+                with columns[0]:
+                    growth[channel] = _pct_input(
+                        "Monthly growth %", float(growth.get(channel, S8_DEFAULT_GROWTH.get(channel, 0.05))),
+                        f"s8_g_{channel}", -50.0, 200.0,
+                    )
+                with columns[1]:
+                    jan_targets[channel] = _pct_input(
+                        "January target %", float(jan_targets.get(channel, S8_DEFAULT_JAN_TARGET.get(channel, 1.0))),
+                        f"s8_j_{channel}", 0.0, 400.0,
+                    )
+                with columns[2]:
+                    mar_targets[channel] = _pct_input(
+                        "March target %", float(mar_targets.get(channel, S8_DEFAULT_MAR_TARGET.get(channel, 1.0))),
+                        f"s8_m_{channel}", 0.0, 400.0,
+                    )
             params["channel_growth"] = growth
             params["channel_jan_target"] = jan_targets
             params["channel_mar_target"] = mar_targets
-            glass_note(
-                "Each row sets monthly growth, the January 2027 target and the "
-                "March 2027 target for one channel."
-            )
- 
-    elif scenario_id == 9:
-        with st.expander("Optimiser assumptions", expanded=True):
-            columns = st.columns(2)
-            ambition = columns[0].slider(
-                "Portfolio March ambition", 100, 180, 120, 1, format="%d%%", key="s9_target",
-            ) / 100.0
+
+        elif scenario_id == 9:
+            columns = st.columns(3)
+            with columns[0]:
+                jan_target = _pct_input("Portfolio January milestone %", 1.00, "s9_jan_target", 0.0, 300.0)
+            with columns[1]:
+                ambition = _pct_input(
+                    "Portfolio March ambition %", float(base_params.get("optimizer_target", 1.20)),
+                    "s9_target", 0.0, 400.0,
+                )
+            with columns[2]:
+                params["leakage"] = _pct_input(
+                    "February–March leakage %", float(base_params.get("leakage", S8_DEFAULT_LEAKAGE)),
+                    "s9_leakage", 0.0, 100.0,
+                )
             params["optimizer_target"] = ambition
-            params["leakage"] = columns[1].slider(
-                "February–March AUM leakage", 0, 30, int(S8_DEFAULT_LEAKAGE * 100), 1,
-                format="%d%%", key="s9_leakage",
-            ) / 100.0
-            # The optimiser solves every channel against the selected ambition,
-            # holding the January milestone at 100% of the FY target.
             params["channel_mar_target"] = {c: ambition for c in CHANNELS}
-            params["channel_jan_target"] = dict(S8_DEFAULT_JAN_TARGET)
- 
+            params["channel_jan_target"] = {c: jan_target for c in CHANNELS}
+
+        glass_note(
+            "All percentages in the selected scenario are editable. Changing a value recalculates "
+            "required run rates, expected sales and revenue immediately."
+        )
+
     return params
- 
- 
+
+
+def _active_scenario_assumption_text(model: ScenarioModel) -> str:
+    """Dynamic assumption summary so edited percentages are visible beside the scenario."""
+    p = model.params
+    sid = model.scenario_id
+    if sid == 1:
+        return f"Run-rate uplift: {fmt_pct(p.get('runrate_uplift', S1_RUNRATE_UPLIFT))}"
+    if sid == 2:
+        return f"January overall: {fmt_pct(p.get('overall_target', S2_OVERALL_TARGET))} · January Equity: {fmt_pct(p.get('equity_target', S2_EQUITY_TARGET))}"
+    if sid == 3:
+        return f"January target: {fmt_pct(p.get('target_pct', S3_TARGET))} · Feb–Mar dip: {fmt_pct(p.get('dip', S3_DEFAULT_DIP))}"
+    if sid == 4:
+        return f"March target: {fmt_pct(p.get('target_pct', S4_TARGET))}"
+    if sid == 5:
+        return f"March overall: {fmt_pct(p.get('overall_target', S5_OVERALL_TARGET))} · March Equity: {fmt_pct(p.get('equity_target', S5_EQUITY_TARGET))}"
+    if sid == 6:
+        targets = dict(p.get('segment_targets', S6_SEGMENT_TARGETS))
+        return " · ".join(f"{s}: {fmt_pct(targets.get(s))}" for s in SEGMENT_ORDER)
+    if sid == 7:
+        return f"January: {fmt_pct(p.get('jan_target'))} · March: {fmt_pct(p.get('mar_target'))} · Leakage: {fmt_pct(p.get('leakage'))}"
+    if sid == 8:
+        return f"Channel assumptions editable · Leakage: {fmt_pct(p.get('leakage'))}"
+    if sid == 9:
+        jan = next(iter(p.get('channel_jan_target', {}).values()), None)
+        return f"January milestone: {fmt_pct(jan)} · March ambition: {fmt_pct(p.get('optimizer_target'))} · Leakage: {fmt_pct(p.get('leakage'))}"
+    return ""
+
+
+def _active_scenario_copy(model: ScenarioModel) -> Dict[str, str]:
+    """Return scenario title/thesis/explanation using the live editable percentages."""
+    p = model.params
+    sid = model.scenario_id
+
+    if sid == 1:
+        uplift = fmt_pct(p.get("runrate_uplift", S1_RUNRATE_UPLIFT))
+        return {
+            "name": f"+{uplift} Run-Rate Push",
+            "thesis": f"Lift the current pace by {uplift} and carry that pace through the remaining nine months.",
+            "explanation": f"Increase the current Apr–Jun monthly run rate by {uplift} from July onward and measure the resulting March achievement.",
+        }
+    if sid == 2:
+        overall = fmt_pct(p.get("overall_target", S2_OVERALL_TARGET))
+        equity = fmt_pct(p.get("equity_target", S2_EQUITY_TARGET))
+        return {
+            "name": f"{overall} Overall by January + {equity} Equity",
+            "thesis": f"Reach {equity} of the Equity FY target while carrying {overall} of the overall book by January.",
+            "explanation": f"Reach {equity} of the Equity FY target and {overall} of the overall FY target by January. The residual requirement is allocated to Debt and Liquid in FY-target proportion.",
+        }
+    if sid == 3:
+        target = fmt_pct(p.get("target_pct", S3_TARGET))
+        dip = fmt_pct(p.get("dip", S3_DEFAULT_DIP))
+        return {
+            "name": f"{target} by January, then {dip} Feb–Mar dip",
+            "thesis": f"Reach {target} of the FY target by January, then absorb a {dip} closing run-rate dip.",
+            "explanation": f"Reach {target} of the FY target by January, followed by a {dip} February–March run-rate decline.",
+        }
+    if sid == 4:
+        target = fmt_pct(p.get("target_pct", S4_TARGET))
+        return {
+            "name": f"{target} by March",
+            "thesis": f"Hold the required pace for the remaining nine months and close the year at {target}.",
+            "explanation": f"Determine the monthly run rate required to finish March at {target} of the FY target.",
+        }
+    if sid == 5:
+        overall = fmt_pct(p.get("overall_target", S5_OVERALL_TARGET))
+        equity = fmt_pct(p.get("equity_target", S5_EQUITY_TARGET))
+        return {
+            "name": f"{equity} Equity + {overall} Overall by March",
+            "thesis": f"Push Equity to {equity} while the overall portfolio lands at {overall} by March.",
+            "explanation": f"Reach {equity} of the Equity FY target and {overall} of the overall FY target by March, with Debt and Liquid balancing the remaining requirement.",
+        }
+    if sid == 6:
+        targets = dict(p.get("segment_targets", S6_SEGMENT_TARGETS))
+        digital = fmt_pct(targets.get("Digital", S6_SEGMENT_TARGETS["Digital"]))
+        b30 = fmt_pct(targets.get("Retail B30", S6_SEGMENT_TARGETS["Retail B30"]))
+        others = fmt_pct(targets.get("Others", S6_SEGMENT_TARGETS["Others"]))
+        return {
+            "name": f"Digital {digital} + Retail B30 {b30} + Others {others}",
+            "thesis": f"Set differentiated March outcomes: Digital {digital}, Retail B30 {b30}, Others {others}.",
+            "explanation": f"Model differentiated performance where Digital achieves {digital}, Retail B30 achieves {b30}, and Others achieve {others} of their respective FY targets.",
+        }
+    if sid == 7:
+        jan = fmt_pct(p.get("jan_target", S7_DEFAULT_JAN_TARGET))
+        mar = fmt_pct(p.get("mar_target", S7_DEFAULT_MAR_TARGET))
+        leakage = fmt_pct(p.get("leakage", S7_DEFAULT_LEAKAGE))
+        return {
+            "name": f"Momentum Build-Up · Jan {jan} → Mar {mar}",
+            "thesis": f"Build a January buffer to reach {jan}, absorb {leakage} leakage, and protect a {mar} March outcome.",
+            "explanation": f"Build progressive month-on-month momentum from July 2026 to reach {jan} by January 2027, absorb {leakage} February–March run-rate leakage, and finish March at the {mar} ambition.",
+        }
+    if sid == 8:
+        leakage = fmt_pct(p.get("leakage", S8_DEFAULT_LEAKAGE))
+        return {
+            "name": "Channel Growth & Target Simulator",
+            "thesis": f"Set channel-by-channel growth and target percentages, with {leakage} February–March leakage.",
+            "explanation": f"Independently adjust monthly growth, January target achievement and March target achievement for all nine channels. The current leakage assumption is {leakage}.",
+        }
+    if sid == 9:
+        jan = next(iter(p.get("channel_jan_target", {}).values()), 1.0)
+        jan_text = fmt_pct(jan)
+        mar_text = fmt_pct(p.get("optimizer_target", 1.0))
+        leakage = fmt_pct(p.get("leakage", S8_DEFAULT_LEAKAGE))
+        return {
+            "name": f"Channel Mix Optimiser · Mar {mar_text}",
+            "thesis": f"Find the minimum channel growth needed for a {mar_text} March ambition while protecting a {jan_text} January milestone.",
+            "explanation": f"Optimise the channel growth trajectory to achieve {mar_text} by March, preserve the {jan_text} January milestone, and allow for {leakage} February–March leakage.",
+        }
+    return {
+        "name": model.meta.get("name", "Scenario"),
+        "thesis": model.meta.get("thesis", ""),
+        "explanation": model.meta.get("explanation", ""),
+    }
+
+
 def render_scenario_hero(model: ScenarioModel, basis: str, asset: str) -> Dict[str, Any]:
     """06 · Scenario hero: the thesis, then Current → January → March."""
     meta = model.meta
+    live_copy = _active_scenario_copy(model)
     section_header(
         "06",
-        f"Scenario {model.scenario_id} · {meta['name']}",
+        f"Scenario {model.scenario_id} · {live_copy['name']}",
         "The selected strategy and what it demands",
     )
  
     st.markdown(
         "<div class='scenario-hero'>"
         f"<div class='eyebrow'>Scenario {model.scenario_id:02d} · {escape(meta['short'])}</div>"
-        f"<div class='title'>{escape(meta['name'])}</div>"
-        f"<div class='thesis'>{escape(meta['thesis'])}</div>"
-        f"<div class='detail'>{escape(meta['explanation'])}</div>"
-        f"<div class='milestone'>{escape(meta['milestone'])}</div>"
+        f"<div class='title'>{escape(live_copy['name'])}</div>"
+        f"<div class='thesis'>{escape(live_copy['thesis'])}</div>"
+        f"<div class='detail'>{escape(live_copy['explanation'])}</div>"
+        f"<div class='milestone'>{escape(_active_scenario_assumption_text(model))}</div>"
         "</div>",
         unsafe_allow_html=True,
     )
@@ -4662,16 +5109,16 @@ def render_scenario_comparison(
         {"label": "Revenue impact", "value": fmt_cr_signed(revenue_total, 1),
          "tone": _tone_for(revenue_total),
          "secondary": f"on {SALES_LABEL[REVENUE_BASIS]}, asset-class rates"},
-    ])
+    ], css_class="scenario-kpi-grid")
  
     gs_frame, gs_formats = build_final_scenario_comparison(final_metrics, model, "GS")
     ns_frame, ns_formats = build_final_scenario_comparison(final_metrics, model, "NS")
  
     tabs = st.tabs(["Net Sales · current vs scenario", "Gross Sales · current vs scenario"])
     with tabs[0]:
-        render_glass_table(ns_frame, ns_formats, total_rows=("Overall",))
+        render_glass_table(ns_frame, ns_formats, total_rows=("Overall",), css_class="scenario-table")
     with tabs[1]:
-        render_glass_table(gs_frame, gs_formats, total_rows=("Overall",))
+        render_glass_table(gs_frame, gs_formats, total_rows=("Overall",), css_class="scenario-table")
  
     glass_note(
         "Scenario outcomes are anchored to the FINAL FY27 targets so the comparison uses one "
@@ -4727,135 +5174,21 @@ def trajectory_cell(model: ScenarioModel, basis: str, asset: str) -> Dict[str, A
     return cell
  
  
-def momentum_figure(cell: Dict[str, Any], title: str) -> Any:
-    """Build → accelerate → January milestone → leakage → protect March."""
-    if not PLOTLY_AVAILABLE:
-        return None
-    trajectory = cell.get("trajectory") or []
-    if not trajectory:
-        return None
- 
-    x = list(range(len(FUTURE_MONTHS)))
-    current_rr = _z(cell.get("current_rr"))
- 
-    fig = go.Figure()
-    fig.add_vrect(
-        x0=MONTHS_JUL_JAN - 0.5, x1=len(FUTURE_MONTHS) - 0.5,
-        fillcolor="rgba(255,107,107,0.07)", line_width=0, layer="below",
-        annotation_text="Feb–Mar leakage", annotation_position="top left",
-        annotation_font=dict(color=INK_MUTED, size=10),
-    )
-    fig.add_trace(go.Scatter(
-        x=x, y=[current_rr] * len(FUTURE_MONTHS),
-        mode="lines", name="Current run rate",
-        line=dict(color="rgba(255,255,255,0.32)", width=1.6, dash="dot"),
-        hovertemplate="Current pace %{y:,.0f} Cr<extra></extra>",
-    ))
-    fig.add_trace(go.Scatter(
-        x=x, y=[_z(v) for v in trajectory],
-        mode="lines+markers", name="Required trajectory",
-        line=dict(color=GOLD, width=2.6, shape="spline"),
-        marker=dict(size=6, color=GOLD, line=dict(width=0)),
-        fill="tozeroy", fillcolor="rgba(216,183,106,0.10)",
-        hovertemplate="%{text}: %{y:,.0f} Cr<extra></extra>",
-        text=FUTURE_MONTHS,
-    ))
-    january_rr = _z(trajectory[MONTHS_JUL_JAN - 1])
-    fig.add_annotation(
-        x=MONTHS_JUL_JAN - 1, y=january_rr,
-        text="January milestone",
-        showarrow=True, arrowhead=0, arrowwidth=1,
-        arrowcolor="rgba(216,183,106,0.6)", ax=0, ay=-38,
-        font=dict(color=GOLD, size=11),
-    )
-    fig.update_layout(
-        title=title,
-        xaxis=dict(tickmode="array", tickvals=x, ticktext=FUTURE_MONTHS),
-        yaxis_title="Monthly run rate (\u20b9 Cr)",
-    )
-    return fig
- 
- 
-def cumulative_figure(cell: Dict[str, Any], title: str) -> Any:
-    """Cumulative achievement against the FY target line."""
-    if not PLOTLY_AVAILABLE:
-        return None
-    trajectory = cell.get("trajectory") or []
-    fy_target = _num(cell.get("fy_target"))
-    if not trajectory or not fy_target:
-        return None
- 
-    cumulative = []
-    running = _z(cell.get("ytd_ach"))
-    for value in trajectory:
-        running += _z(value)
-        cumulative.append(running / fy_target * 100.0)
- 
-    x = list(range(len(FUTURE_MONTHS)))
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(
-        x=x, y=cumulative, mode="lines+markers", name="Cumulative achievement",
-        line=dict(color=GOLD, width=2.4, shape="spline"),
-        marker=dict(size=5, color=GOLD),
-        fill="tozeroy", fillcolor="rgba(216,183,106,0.09)",
-        hovertemplate="%{text}: %{y:.1f}% of FY target<extra></extra>",
-        text=FUTURE_MONTHS,
-    ))
-    fig.add_hline(
-        y=100, line=dict(color="rgba(255,255,255,0.35)", width=1, dash="dot"),
-        annotation_text="FY target", annotation_position="bottom right",
-        annotation_font=dict(color=INK_MUTED, size=10),
-    )
-    fig.add_vline(
-        x=MONTHS_JUL_JAN - 1, line=dict(color="rgba(216,183,106,0.35)", width=1),
-    )
-    fig.update_layout(
-        title=title,
-        xaxis=dict(tickmode="array", tickvals=x, ticktext=FUTURE_MONTHS),
-        yaxis_title="Cumulative % of FY target",
-    )
-    return fig
- 
- 
 def render_scenario_trajectory(model: ScenarioModel, basis: str, asset: str) -> None:
-    """07 · Monthly progression, January milestone and March outcome."""
+    """07 · Monthly progression shown as data only; all graphs are removed."""
     section_header(
         "07",
         "Scenario trajectory",
         "Month by month from July 2026 to March 2027",
     )
- 
+
     cell = trajectory_cell(model, basis, asset)
-    trajectory = cell.get("trajectory") or []
- 
-    figure = momentum_figure(
-        cell, f"{SALES_LABEL[basis]} · required monthly run rate"
-    )
-    if figure is not None:
-        show_figure(figure, height=380)
-    elif trajectory:
-        st.line_chart(
-            pd.DataFrame(
-                {
-                    "Current run rate": [_z(cell.get("current_rr"))] * len(trajectory),
-                    "Required trajectory": trajectory,
-                },
-                index=MONTH_DATES[: len(trajectory)],
-            )
-        )
- 
-    cumulative = cumulative_figure(cell, "Cumulative achievement against the FY target")
-    if cumulative is not None:
-        show_figure(cumulative, height=300)
- 
     frame, formats = build_momentum_analysis(cell)
-    with st.expander("Month-by-month detail", expanded=False):
-        render_glass_table(frame, formats)
- 
+    render_glass_table(frame, formats, css_class="scenario-table")
+
     if model.scenario_id == 7:
         render_momentum_detail(model, basis)
- 
- 
+
 def render_momentum_detail(model: ScenarioModel, basis: str) -> None:
     """Scenario 7 specifics: binding milestone, buffer, leakage and sensitivity."""
     cell = model.cell(basis)
@@ -4878,7 +5211,7 @@ def render_momentum_detail(model: ScenarioModel, basis: str) -> None:
         {"label": "January exit run rate", "value": fmt_cr(cell.get("scen_rr")),
          "delta": fmt_pct_signed(cell.get("rr_change_pct")),
          "tone": _tone_for(cell.get("rr_change_pct"))},
-    ])
+    ], css_class="scenario-kpi-grid")
  
     if cell.get("feasible"):
         glass_callout(
@@ -4918,24 +5251,24 @@ def render_momentum_detail(model: ScenarioModel, basis: str) -> None:
                 f"<div class='metric-label'>{SALES_LABEL[sales]}</div>", unsafe_allow_html=True
             )
             frame, formats = build_momentum_by_group(model, sales, "asset")
-            render_glass_table(frame, formats)
+            render_glass_table(frame, formats, css_class="scenario-table")
     with tabs[1]:
         for sales in SALES_TYPES:
             st.markdown(
                 f"<div class='metric-label'>{SALES_LABEL[sales]}</div>", unsafe_allow_html=True
             )
             frame, formats = build_momentum_by_group(model, sales, "vertical")
-            render_glass_table(frame, formats)
+            render_glass_table(frame, formats, css_class="scenario-table")
     with tabs[2]:
         frame, formats = build_leakage_sensitivity(model, basis)
-        render_glass_table(frame, formats)
+        render_glass_table(frame, formats, css_class="scenario-table")
         glass_note(
             "Momentum is re-solved at each leakage assumption, so the required July–January "
             "build changes with the February–March pressure."
         )
     with tabs[3]:
         frame, formats = build_monthly_revenue(model, REVENUE_BASIS)
-        render_glass_table(frame, formats)
+        render_glass_table(frame, formats, css_class="scenario-table")
         january_revenue = calculate_revenue(model.assets(REVENUE_BASIS), "jan_amount")
         march_revenue = calculate_revenue(model.assets(REVENUE_BASIS), "march_amount")
         baseline = calculate_baseline_revenue(model.assets(REVENUE_BASIS))
@@ -4947,114 +5280,48 @@ def render_momentum_detail(model: ScenarioModel, basis: str) -> None:
         )
  
  
-def revenue_waterfall(bundle: Dict[str, Any]) -> Any:
-    """Baseline revenue → asset-class contributions → scenario revenue."""
-    if not PLOTLY_AVAILABLE:
-        return None
-    labels = ["Baseline"] + ASSETS + ["Scenario"]
-    values = [bundle["baseline"]["total"]]
-    values += [_z(bundle["incremental"]["by_asset"].get(asset)) for asset in ASSETS]
-    values += [bundle["scenario"]["total"]]
-    measures = ["absolute"] + ["relative"] * len(ASSETS) + ["total"]
- 
-    fig = go.Figure(go.Waterfall(
-        orientation="v",
-        measure=measures,
-        x=labels,
-        y=values,
-        text=[fmt_cr(v, 1) for v in values],
-        textposition="outside",
-        textfont=dict(color=INK_SOFT, size=11),
-        connector=dict(line=dict(color="rgba(255,255,255,0.14)", width=1)),
-        increasing=dict(marker=dict(color=GOLD)),
-        decreasing=dict(marker=dict(color=RED)),
-        totals=dict(marker=dict(color="rgba(255,255,255,0.30)")),
-        hovertemplate="%{x}: %{y:,.1f} Cr<extra></extra>",
-    ))
-    fig.update_layout(
-        title="Revenue bridge (\u20b9 Cr)",
-        yaxis_title="\u20b9 Cr",
-        showlegend=False,
-    )
-    return fig
- 
- 
 def render_revenue_impact(model: ScenarioModel) -> Dict[str, Any]:
-    """08 · Revenue impact - asset-class rates, never a blended rate."""
+    """08 · Current-versus-expected revenue only, with asset-class detail."""
     section_header(
         "08",
-        "Revenue impact",
-        "Equity 60 bps · Debt 20 bps · Liquid 10 bps on Net Sales",
+        "Current revenue vs expected revenue",
+        "Current trajectory compared with the selected scenario · Net Sales revenue basis",
     )
- 
+
     bundle = revenue_bundle(model, REVENUE_BASIS)
-    incremental = bundle["incremental"]
- 
-    kpi_strip([
-        {"label": "Incremental revenue", "value": fmt_cr_signed(incremental["total"], 1),
-         "tone": _tone_for(incremental["total"]),
-         "delta": fmt_pct_signed(incremental["uplift_pct"]),
-         "secondary": "versus the current run rate"},
-        {"label": "Baseline revenue", "value": fmt_cr(bundle["baseline"]["total"], 1),
-         "secondary": "current trajectory to March"},
-        {"label": "Scenario revenue", "value": fmt_cr(bundle["scenario"]["total"], 1),
-         "secondary": "selected scenario to March"},
-        {"label": "January revenue", "value": fmt_cr(bundle["january"]["total"], 1),
-         "secondary": "booked by the January milestone"},
-    ])
- 
-    left, right = st.columns([1.15, 1])
-    with left:
-        figure = revenue_waterfall(bundle)
-        if figure is not None:
-            show_figure(figure, height=340)
-        else:
-            st.bar_chart(
-                pd.DataFrame(
-                    {"Incremental revenue": [_z(incremental["by_asset"][a]) for a in ASSETS]},
-                    index=ASSETS,
-                )
-            )
-    with right:
-        frame, formats = build_revenue_impact(model, REVENUE_BASIS)
-        render_glass_table(frame, formats, total_rows=("Total",))
- 
-    parts = " + ".join(
-        f"{asset} {fmt_cr_signed(incremental['by_asset'][asset], 1)}" for asset in ASSETS
+    current_revenue = bundle["baseline"]["total"]
+    expected_revenue = bundle["scenario"]["total"]
+
+    st.markdown(
+        "<div class='revenue-compare-grid'>"
+        "<div class='glass-card revenue-current-card'>"
+        "<div class='metric-label'>Current revenue</div>"
+        f"<div class='revenue-compare-amount'>{escape(fmt_cr(current_revenue, 1))}</div>"
+        "<div class='metric-secondary'>Expected by March at the current trajectory</div>"
+        "</div>"
+        "<div class='glass-card revenue-expected-card'>"
+        "<div class='metric-label'>Expected revenue</div>"
+        f"<div class='revenue-compare-amount'>{escape(fmt_cr(expected_revenue, 1))}</div>"
+        f"<div class='metric-secondary'>Scenario {model.scenario_id} expected by March</div>"
+        "</div>"
+        "</div>",
+        unsafe_allow_html=True,
     )
-    contribution = " · ".join(
-        f"{asset} {fmt_pct(incremental['contribution'][asset])}" for asset in ASSETS
+
+    frame, formats = build_revenue_impact(model, REVENUE_BASIS)
+    render_glass_table(
+        frame,
+        formats,
+        total_rows=("Total",),
+        css_class="scenario-table revenue-table",
     )
-    glass_callout(
-        f"<b>Revenue bridge:</b> baseline {fmt_cr(bundle['baseline']['total'], 1)} "
-        f"+ {parts} = scenario {fmt_cr(bundle['scenario']['total'], 1)}.<br>"
-        f"<b>Scenario revenue mix:</b> {contribution}."
+
+    glass_note(
+        "Revenue is calculated separately by asset class on Net Sales using the configured "
+        "Equity, Debt and Liquid revenue rates. The table shows only current and expected revenue."
     )
     return bundle
- 
- 
-def all_scenarios_figure(frame: pd.DataFrame, selected_scenario_id: int) -> Any:
-    """Every scenario's March outcome on the same scope."""
-    if not PLOTLY_AVAILABLE or frame.empty or "Scenario March %" not in frame.columns:
-        return None
-    labels = frame["Scenario"].tolist()
-    values = [(_num(v) or 0.0) * 100.0 for v in frame["Scenario March %"]]
-    selected_label = f"{selected_scenario_id:02d} · {SCENARIOS[selected_scenario_id]['short']}"
-    colors = [GOLD if label == selected_label else "rgba(255,255,255,0.22)" for label in labels]
-    fig = go.Figure(go.Bar(
-        x=labels, y=values,
-        marker=dict(color=colors, line=dict(width=0)),
-        hovertemplate="%{x}<br>March %{y:.1f}% of FY target<extra></extra>",
-    ))
-    fig.add_hline(
-        y=100, line=dict(color="rgba(255,255,255,0.35)", width=1, dash="dot"),
-        annotation_text="FY target", annotation_position="top left",
-        annotation_font=dict(color=INK_MUTED, size=10),
-    )
-    fig.update_layout(title="March achievement by scenario", yaxis_title="% of FY target")
-    return fig
- 
- 
+
 def render_all_scenarios(
     grid: pd.DataFrame,
     scenario_id: int,
@@ -5062,25 +5329,22 @@ def render_all_scenarios(
     basis: str,
     asset: str,
 ) -> None:
-    """Every scenario evaluated on the selected scope, not just the chosen one."""
+    """Every scenario evaluated on the selected scope, table only."""
     with st.expander("Compare all nine scenarios on this scope", expanded=False):
         frame, formats = build_all_scenario_matrix(grid, scenario_id, params, basis, asset)
         if frame.empty:
             glass_note("No scenario output is available for this scope.")
             return
-        figure = all_scenarios_figure(frame, scenario_id)
-        if figure is not None:
-            show_figure(figure, height=320)
         render_glass_table(
             frame, formats,
             total_rows=(f"{scenario_id:02d} · {SCENARIOS[scenario_id]['short']}",),
+            css_class="scenario-table",
         )
         glass_note(
             "Scenarios 1–9 are calculated on the same scope and sales basis. The selected "
             "scenario uses the live assumptions above; the others use their configured defaults."
         )
- 
- 
+
 # =============================================================================
 # 19. SCENARIO-SPECIFIC DRIVERS
 # =============================================================================
@@ -5098,8 +5362,9 @@ def render_segment_section(model: ScenarioModel, basis: str, counts: Dict[str, i
             tone="warn",
         )
  
+    segment_targets = dict(model.params.get("segment_targets", S6_SEGMENT_TARGETS))
     present = " · ".join(
-        f"{segment} {S6_SEGMENT_TARGETS[segment]:.0%} of FY target ({counts.get(segment, 0)} RMs)"
+        f"{segment} {float(segment_targets.get(segment, S6_SEGMENT_TARGETS[segment])):.1%} of FY target ({counts.get(segment, 0)} RMs)"
         for segment in SEGMENT_ORDER
     )
     glass_note(f"Scenario assumption — {present}.")
@@ -5108,7 +5373,7 @@ def render_segment_section(model: ScenarioModel, basis: str, counts: Dict[str, i
     for tab, sales in zip(tabs, ["NS", "GS"]):
         with tab:
             frame, formats = build_segment_scenario_analysis(model, sales)
-            render_glass_table(frame, formats, total_rows=("Overall",))
+            render_glass_table(frame, formats, total_rows=("Overall",), css_class="scenario-table")
  
     overall = model.cell(basis)
     lines = []
@@ -5129,33 +5394,8 @@ def render_segment_section(model: ScenarioModel, basis: str, counts: Dict[str, i
     )
  
  
-def channel_matrix_figure(frame: pd.DataFrame) -> Any:
-    """January and March achievement by channel, against the 100% line."""
-    if not PLOTLY_AVAILABLE or frame.empty:
-        return None
-    labels = frame["Channel"].tolist()
-    fig = go.Figure()
-    fig.add_trace(go.Bar(
-        x=labels, y=[(_num(v) or 0.0) * 100 for v in frame["Jan Achievement"]],
-        name="January 2027", marker=dict(color="rgba(255,255,255,0.26)", line=dict(width=0)),
-        hovertemplate="%{x} · January %{y:.1f}%<extra></extra>",
-    ))
-    fig.add_trace(go.Bar(
-        x=labels, y=[(_num(v) or 0.0) * 100 for v in frame["Mar Achievement"]],
-        name="March 2027", marker=dict(color=GOLD, line=dict(width=0)),
-        hovertemplate="%{x} · March %{y:.1f}%<extra></extra>",
-    ))
-    fig.add_hline(
-        y=100, line=dict(color="rgba(255,255,255,0.35)", width=1, dash="dot"),
-        annotation_text="FY target", annotation_position="top left",
-        annotation_font=dict(color=INK_MUTED, size=10),
-    )
-    fig.update_layout(barmode="group", bargap=0.3, title="Channel achievement", yaxis_title="% of FY target")
-    return fig
- 
- 
 def render_channel_simulator(model: ScenarioModel, basis: str) -> None:
-    """Scenario 8 · executive channel simulator."""
+    """Scenario 8 · executive channel simulator, table only."""
     frame, formats = build_channel_scenario_analysis(model, basis)
     if frame.empty:
         glass_callout(
@@ -5164,11 +5404,11 @@ def render_channel_simulator(model: ScenarioModel, basis: str) -> None:
             tone="warn",
         )
         return
- 
+
     jan_gap = _z(frame["Jan Gap / Headroom"].sum())
     mar_gap = _z(frame["Mar Gap / Headroom"].sum())
     incremental = _z(frame["March Incremental Sales"].sum())
- 
+
     kpi_strip([
         {"label": "January portfolio headroom", "value": fmt_cr_signed(jan_gap),
          "tone": _tone_for(jan_gap), "secondary": "above or below the January target"},
@@ -5178,14 +5418,10 @@ def render_channel_simulator(model: ScenarioModel, basis: str) -> None:
          "tone": _tone_for(incremental), "secondary": "versus the current projection"},
         {"label": "Channels in play", "value": f"{len(frame)} of {len(CHANNELS)}",
          "secondary": "mapped from workbook metadata"},
-    ])
- 
-    figure = channel_matrix_figure(frame)
-    if figure is not None:
-        show_figure(figure, height=340)
- 
-    render_glass_table(frame, formats)
- 
+    ], css_class="scenario-kpi-grid")
+
+    render_glass_table(frame, formats, css_class="scenario-table")
+
     on_track = (frame["Jan Gap / Headroom"] >= 0).all() and (frame["Mar Gap / Headroom"] >= 0).all()
     if on_track:
         glass_callout(
@@ -5202,29 +5438,9 @@ def render_channel_simulator(model: ScenarioModel, basis: str) -> None:
             + ". Raise monthly growth or reset the target for those channels.",
             tone="warn",
         )
- 
- 
-def optimiser_figure(frame: pd.DataFrame) -> Any:
-    """Minimum month-on-month growth each channel must deliver."""
-    if not PLOTLY_AVAILABLE or frame.empty:
-        return None
-    ordered = frame.sort_values("MoM Growth", ascending=True)
-    fig = go.Figure(go.Bar(
-        x=[(_num(v) or 0.0) * 100 for v in ordered["MoM Growth"]],
-        y=ordered["Channel"].tolist(),
-        orientation="h",
-        marker=dict(color=GOLD, line=dict(width=0)),
-        hovertemplate="%{y} · minimum %{x:.1f}% per month<extra></extra>",
-    ))
-    fig.update_layout(
-        title="Minimum monthly growth required by channel",
-        xaxis_title="Month-on-month growth %",
-    )
-    return fig
- 
- 
+
 def render_channel_optimizer(model: ScenarioModel, basis: str) -> None:
-    """Scenario 9 · find the minimum growth required."""
+    """Scenario 9 · minimum growth required, table only."""
     ambition = float(model.params.get("optimizer_target", 1.20))
     frame, formats = build_channel_scenario_analysis(model, basis)
     if frame.empty:
@@ -5234,11 +5450,11 @@ def render_channel_optimizer(model: ScenarioModel, basis: str) -> None:
             tone="warn",
         )
         return
- 
+
     solved = [(_num(v) or 0.0) for v in frame["MoM Growth"]]
     hardest = frame.iloc[int(np.argmax(solved))] if solved else None
     portfolio = model.cell(basis)
- 
+
     kpi_strip([
         {"label": "March ambition", "value": fmt_pct(ambition), "tone": "gold",
          "secondary": "portfolio target set by management"},
@@ -5248,77 +5464,83 @@ def render_channel_optimizer(model: ScenarioModel, basis: str) -> None:
          "value": fmt_pct(float(np.mean(solved)) if solved else None),
          "secondary": "across mapped channels"},
         {"label": "January milestone", "value": fmt_pct(portfolio.get("jan_pct")),
-         "secondary": "held at 100% of FY target"},
+         "secondary": "editable portfolio January target"},
         {"label": "Feb–Mar leakage",
          "value": fmt_pct(model.params.get("leakage", S8_DEFAULT_LEAKAGE)),
          "secondary": "applied after January"},
-    ])
- 
-    figure = optimiser_figure(frame)
-    if figure is not None:
-        show_figure(figure, height=340)
- 
+    ], css_class="scenario-kpi-grid")
+
     display = frame.copy()
     display["Portfolio ambition"] = ambition
     display_formats = dict(formats)
     display_formats["Portfolio ambition"] = "pct"
-    render_glass_table(display, display_formats)
- 
+    render_glass_table(display, display_formats, css_class="scenario-table")
+
     glass_callout(
         "The optimiser solves the minimum compounding trajectory each channel must run from July "
         f"to hold the January milestone and still land the {fmt_pct(ambition)} March ambition after "
         f"{fmt_pct(model.params.get('leakage', S8_DEFAULT_LEAKAGE))} leakage. Channels already at "
         "or above the requirement solve to zero additional growth."
     )
- 
- 
+
 def render_scenario_drivers(
     model: ScenarioModel,
     basis: str,
     segment_counts: Dict[str, int],
 ) -> None:
-    """09 · Channel, asset and segment drivers behind the selected scenario."""
+    """09 · Scenario data segregated only into Channel and Asset Class views."""
     section_header(
         "09",
         "Scenario drivers",
         "Where the required delivery actually sits",
     )
- 
+
     if model.scenario_id == 6:
         render_segment_section(model, basis, segment_counts)
     elif model.scenario_id == 8:
         render_channel_simulator(model, basis)
     elif model.scenario_id == 9:
         render_channel_optimizer(model, basis)
- 
-    tabs = st.tabs(["Retail / DHNI / VRM", "Asset class"])
+
+    tabs = st.tabs(["Channel", "Asset class"])
     with tabs[0]:
-        verticals = model.available_verticals()
-        if not verticals:
-            glass_note("No Retail / DHNI / VRM data is available for this scope.")
+        frame, formats = build_vertical_summary(model)
+        if frame.empty:
+            glass_note("No channel data is available for this scope.")
         else:
-            reset_stale_selection("vertical_drilldown", verticals)
-            selected = st.radio(
-                "Channel drill-down", verticals, index=0, horizontal=True,
-                key="vertical_drilldown", label_visibility="collapsed",
-            )
-            frame, formats = build_vertical_summary(model)
-            filtered = frame.loc[frame["Vertical"] == selected].drop(columns=["Vertical"])
-            render_glass_table(filtered, formats)
+            render_glass_table(frame, formats, css_class="scenario-table")
+
     with tabs[1]:
-        selected_asset = st.radio(
-            "Asset drill-down", ASSETS, index=0, horizontal=True,
-            key="asset_drilldown", label_visibility="collapsed",
-        )
+        rows: List[Dict[str, Any]] = []
         for sales in ("NS", "GS"):
-            st.markdown(
-                f"<div class='metric-label'>{SALES_LABEL[sales]}</div>", unsafe_allow_html=True
-            )
-            frame, formats = build_asset_breakdown(model, sales)
-            filtered = frame.loc[frame["Asset"] == selected_asset].drop(columns=["Asset"])
-            render_glass_table(filtered, formats)
- 
- 
+            for asset_name in ASSETS:
+                cell = model.cell(sales, asset=asset_name)
+                rows.append({
+                    "Sales": SALES_LABEL[sales],
+                    "Asset Class": asset_name,
+                    "FY Target": cell.get("fy_target"),
+                    "YTD Achievement": cell.get("ytd_ach"),
+                    "Target Achieved %": cell.get("ytd_ach_pct"),
+                    "Current Run Rate": cell.get("current_rr"),
+                    "Scenario Run Rate": cell.get("scen_rr"),
+                    "Run Rate Change %": cell.get("rr_change_pct"),
+                    "Current March Projection %": cell.get("current_march_pct"),
+                    "Scenario March Projection %": cell.get("march_pct"),
+                    "Incremental Sales": cell.get("incremental_sales"),
+                })
+        asset_frame = pd.DataFrame(rows)
+        render_glass_table(
+            asset_frame,
+            {
+                "Sales": "txt", "Asset Class": "txt", "FY Target": "cr",
+                "YTD Achievement": "cr", "Target Achieved %": "pct",
+                "Current Run Rate": "cr", "Scenario Run Rate": "cr",
+                "Run Rate Change %": "pct_signed", "Current March Projection %": "pct",
+                "Scenario March Projection %": "pct", "Incremental Sales": "cr_signed",
+            },
+            css_class="scenario-table",
+        )
+
 def render_detail_tables(model: ScenarioModel) -> None:
     """10 · Detailed analytical tables, supporting the cards above."""
     section_header("10", "Detailed analytical tables", "The full numbers behind every card")
@@ -5326,13 +5548,13 @@ def render_detail_tables(model: ScenarioModel) -> None:
     tabs = st.tabs(["Current baseline", "Current vs scenario", "Scenario guide"])
     with tabs[0]:
         frame, formats = build_current_overview(model)
-        render_glass_table(frame, formats)
+        render_glass_table(frame, formats, css_class="scenario-table")
     with tabs[1]:
         frame, formats = build_comparison(model)
-        render_glass_table(frame, formats)
+        render_glass_table(frame, formats, css_class="scenario-table")
     with tabs[2]:
         guide = build_scenario_guide(model, REVENUE_BASIS)
-        render_glass_table(guide, {c: "txt" for c in guide.columns})
+        render_glass_table(guide, {c: "txt" for c in guide.columns}, css_class="scenario-table")
  
  
 def render_final_reference(payload: bytes) -> None:
@@ -5466,6 +5688,38 @@ def render_channel_controls(records: pd.DataFrame) -> Dict[str, Any]:
     return mapping
  
  
+def _sidebar_pct(key: str, default_fraction: float) -> str:
+    """Format an editable percentage from session state for the scenario dropdown label."""
+    raw = st.session_state.get(key, default_fraction * 100.0)
+    try:
+        return f"{float(raw):.1f}%"
+    except (TypeError, ValueError):
+        return f"{default_fraction * 100.0:.1f}%"
+
+
+def _sidebar_scenario_label(sid: int) -> str:
+    """Scenario dropdown copy that follows the latest edited percentage assumptions."""
+    if sid == 1:
+        return f"Scenario 1 · +{_sidebar_pct('s1_uplift', S1_RUNRATE_UPLIFT)} Run-Rate Push"
+    if sid == 2:
+        return f"Scenario 2 · {_sidebar_pct('s2_overall', S2_OVERALL_TARGET)} Overall by Jan + {_sidebar_pct('s2_equity', S2_EQUITY_TARGET)} Equity"
+    if sid == 3:
+        return f"Scenario 3 · {_sidebar_pct('s3_target', S3_TARGET)} by Jan · {_sidebar_pct('s3_dip', S3_DEFAULT_DIP)} Dip"
+    if sid == 4:
+        return f"Scenario 4 · {_sidebar_pct('s4_target', S4_TARGET)} by March"
+    if sid == 5:
+        return f"Scenario 5 · {_sidebar_pct('s5_equity', S5_EQUITY_TARGET)} Equity + {_sidebar_pct('s5_overall', S5_OVERALL_TARGET)} Overall"
+    if sid == 6:
+        return f"Scenario 6 · Digital {_sidebar_pct('s6_digital', S6_SEGMENT_TARGETS['Digital'])} + B30 {_sidebar_pct('s6_retail_b30', S6_SEGMENT_TARGETS['Retail B30'])} + Others {_sidebar_pct('s6_others', S6_SEGMENT_TARGETS['Others'])}"
+    if sid == 7:
+        return f"Scenario 7 · Jan {_sidebar_pct('s7_jan', S7_DEFAULT_JAN_TARGET)} → Mar {_sidebar_pct('s7_mar', S7_DEFAULT_MAR_TARGET)} · Leakage {_sidebar_pct('s7_leak', S7_DEFAULT_LEAKAGE)}"
+    if sid == 8:
+        return "Scenario 8 · Channel Growth & Target Simulator"
+    if sid == 9:
+        return f"Scenario 9 · Jan {_sidebar_pct('s9_jan_target', 1.0)} → Mar {_sidebar_pct('s9_target', 1.20)} · Leakage {_sidebar_pct('s9_leakage', S8_DEFAULT_LEAKAGE)}"
+    return SCENARIOS[sid]["label"]
+
+
 def render_sidebar(records: pd.DataFrame) -> Tuple[str, Dict[str, Any], Dict[str, Any]]:
     """Quiet utility rail: page, data mapping, assumptions and workbook actions."""
     sidebar = st.sidebar
@@ -5478,6 +5732,22 @@ def render_sidebar(records: pd.DataFrame) -> Tuple[str, Dict[str, Any], Dict[str
         key="application_page_selector",
         label_visibility="collapsed",
     )
+
+    # Scenario selection has a single home: the left sidebar. This prevents
+    # duplicate scenario selectors from appearing above or inside comparisons.
+    sidebar.markdown("<div class='sidebar-title'>Scenario planning</div>", unsafe_allow_html=True)
+    current_scenario = int(st.session_state.get("scenario_id", 1))
+    if current_scenario not in SCENARIO_ORDER:
+        current_scenario = 1
+    selected_scenario_id = sidebar.selectbox(
+        "Scenario",
+        SCENARIO_ORDER,
+        index=SCENARIO_ORDER.index(current_scenario),
+        format_func=_sidebar_scenario_label,
+        key="sidebar_scenario_selector_v7",
+        label_visibility="collapsed",
+    )
+    st.session_state["scenario_id"] = int(selected_scenario_id)
  
     sidebar.markdown("<div class='sidebar-title'>Data mapping</div>", unsafe_allow_html=True)
     segment_mapping = render_segment_controls(records)
@@ -5534,8 +5804,8 @@ def render_upload_screen() -> None:
             "<span class='inline-pill'>RM Retail Sales</span>"
             "<span class='inline-pill'>RM DHNI</span>"
             "<span class='inline-pill'>VRM</span><br><br>"
-            "FINAL supplies AUM, Gross Sales and Net Sales targets. The three RM sheets supply "
-            "employee-level targets and achievement for Equity, Debt and Liquid."
+            "FINAL supplies Gross Sales and Net Sales targets. The three RM sheets supply "
+            "employee-level targets and achievement used for the Asset Class and Channel views."
             "</div></div>",
             unsafe_allow_html=True,
         )
@@ -5594,7 +5864,9 @@ def render_command_center(records: pd.DataFrame, payload: bytes) -> None:
     scoped_cell = summarize_current(
         scoped_grid, sales=basis, asset=None if asset == "All" else asset
     )
-    required_rr = _z(scoped_cell.get("fy_target")) / 12.0
+    required_rr = (
+        _z(scoped_cell.get("fy_target")) - _z(scoped_cell.get("ytd_ach"))
+    ) / max(MONTHS_REMAINING, 1)
     current_rr = _num(scoped_cell.get("current_rr"))
     pace_gap = (current_rr / required_rr - 1.0) if (current_rr is not None and required_rr) else None
     projected = _num(scoped_cell.get("current_march_pct"))
@@ -5610,7 +5882,7 @@ def render_command_center(records: pd.DataFrame, payload: bytes) -> None:
          "secondary": "YTD ÷ 3 completed months"},
         {"label": "Required run rate", "value": fmt_cr(required_rr),
          "delta": fmt_pct_signed(pace_gap), "tone": _tone_for(pace_gap),
-         "secondary": "pace gap on today's run rate"},
+         "secondary": "remaining FY target ÷ remaining months"},
         {"label": "Projected March", "value": fmt_pct(projected),
          "delta": fmt_pts(None if projected is None else projected - 1.0),
          "tone": _tone_for(None if projected is None else projected - 1.0),
@@ -5620,28 +5892,9 @@ def render_command_center(records: pd.DataFrame, payload: bytes) -> None:
          "secondary": "FY target less projected March"},
     ])
  
-    figure = pace_figure(scoped_grid, basis)
-    if figure is not None:
-        show_figure(figure, height=300)
-    else:
-        st.bar_chart(
-            pd.DataFrame(
-                {
-                    "Current run rate": [
-                        _z(summarize_current(scoped_grid, sales=basis, asset=a).get("current_rr"))
-                        for a in ASSETS
-                    ],
-                    "Required run rate": [
-                        _z(summarize_current(scoped_grid, sales=basis, asset=a).get("fy_target")) / 12.0
-                        for a in ASSETS
-                    ],
-                },
-                index=ASSETS,
-            )
-        )
     glass_note(
         "The current run rate is completed Apr–Jun achievement divided by three. The required "
-        "run rate is the FY target spread evenly across twelve months."
+        "run rate is the remaining FY target (Target − YTD) divided by the 9 remaining months."
     )
  
     # 05 · Scenario planning.
@@ -5755,38 +6008,6 @@ def render_retail_rm_filters(records: pd.DataFrame) -> Tuple[pd.DataFrame, Dict[
     return filtered_records, selections
  
  
-def band_figure(contribution: pd.DataFrame) -> Any:
-    """RM count by achievement band, with each band's contribution to target."""
-    if not PLOTLY_AVAILABLE or contribution.empty:
-        return None
-    labels = contribution["Achievement Category"].tolist()
-    counts = [int(_z(v)) for v in contribution["RM Count"]]
-    share = [(_num(v) or 0.0) * 100 for v in contribution["Contribution to Overall Target %"]]
-    colors = [GOLD if label in ("100% and above", "90% - 100%") else "rgba(255,255,255,0.24)"
-              for label in labels]
-    fig = go.Figure()
-    fig.add_trace(go.Bar(
-        x=labels, y=counts, name="RMs",
-        marker=dict(color=colors, line=dict(width=0)),
-        hovertemplate="%{x}<br>%{y} RMs<extra></extra>",
-    ))
-    fig.add_trace(go.Scatter(
-        x=labels, y=share, name="Contribution to target %",
-        yaxis="y2", mode="lines+markers",
-        line=dict(color=GREEN, width=2), marker=dict(size=6, color=GREEN),
-        hovertemplate="%{x}<br>%{y:.1f}% of the FY target<extra></extra>",
-    ))
-    fig.update_layout(
-        title="RM achievement bands and their projected contribution",
-        yaxis=dict(title="RMs"),
-        yaxis2=dict(
-            title="Contribution %", overlaying="y", side="right",
-            showgrid=False, tickfont=dict(color=INK_SOFT, size=11),
-        ),
-    )
-    return fig
- 
- 
 def _star_card(rank: int, row: pd.Series) -> str:
     return (
         "<div class='glass-card stage-card jan'>"
@@ -5890,12 +6111,6 @@ def render_rm_sales_segmentation(
         for band in ACHIEVEMENT_BAND_ORDER
     ])
  
-    figure = band_figure(contribution)
-    if figure is not None:
-        show_figure(figure, height=340)
-    else:
-        st.bar_chart(contribution.set_index("Achievement Category")[["RM Count"]])
- 
     section_header("03", "Run-rate contribution to target", "If each band holds its current pace")
     glass_note(
         "Each band's RMs are annualised at their current run rate and divided by the FY27 target "
@@ -5935,7 +6150,6 @@ def render_rm_sales_segmentation(
                 "Achievement Category", "FY Target", "YTD Target", "YTD Achievement",
                 "YTD Achievement %", "Current Run Rate", "Estimated FY @ Current RR",
                 "Projected FY Achievement %", "Contribution to Overall Target %",
-                "Equity YTD %", "Debt YTD %", "Liquid YTD %",
             ] if c in rows.columns
         ]
         render_glass_table(
@@ -5946,8 +6160,7 @@ def render_rm_sales_segmentation(
                 "FY Target": "cr", "YTD Target": "cr", "YTD Achievement": "cr",
                 "YTD Achievement %": "pct", "Current Run Rate": "cr",
                 "Estimated FY @ Current RR": "cr", "Projected FY Achievement %": "pct",
-                "Contribution to Overall Target %": "pct", "Equity YTD %": "pct",
-                "Debt YTD %": "pct", "Liquid YTD %": "pct",
+                "Contribution to Overall Target %": "pct",
             },
         )
  
@@ -6015,17 +6228,21 @@ def render_rm_segmentation_page(records: pd.DataFrame, payload: bytes) -> None:
 # =============================================================================
  
 def reset_workbook() -> None:
-    for key in ("workbook", "segment_mapping", "channel_mapping", "application_page_selector"):
+    for key in (
+        "workbook", "segment_mapping", "channel_mapping", "application_page_selector",
+        "scenario_id", "scenario_navigator", "sidebar_scenario_selector",
+    ):
         st.session_state.pop(key, None)
     rerun()
  
  
 def main() -> None:
-    # Page configuration must be registered before any other Streamlit UI call.
-    # The shared presentation layer is embedded in this same file.
-    # afterwards because this dashboard still uses its existing custom classes.
-    st.set_page_config(**EMBEDDED_PAGE_CONFIG)
-    inject_embedded_theme()
+    st.set_page_config(
+        page_title=APP_TITLE,
+        page_icon="\u25c6",
+        layout="wide",
+        initial_sidebar_state="collapsed",
+    )
     inject_theme()
  
     if "workbook" not in st.session_state:
