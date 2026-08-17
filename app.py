@@ -5,7 +5,7 @@ theme.py — Sales Performance Command Center · presentation layer
 Single source of truth for the dashboard's visual system.
 
 CONTRACT WITH THE APPLICATION
------------------------------
+-------------zzz----------------
 This module is *display only*. It contains no business logic and it never
 touches a numeric value.
 
@@ -1772,3 +1772,7 @@ def apply_chart_theme(fig, height: Optional[int] = None, show_legend: Optional[b
         layout["showlegend"] = show_legend
     fig.update_layout(**layout)
     return fig
+
+
+if __name__ == "__main__":
+ main()
