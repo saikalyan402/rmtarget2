@@ -935,8 +935,8 @@ def _augment_final_runrate(frame: pd.DataFrame, months_done: int) -> pd.DataFram
     out["Current RR"] = out["YTD"] / months
  
     # Required run rate means the monthly pace needed FROM NOW to close the
-    # remaining FY target, not the FY target averaged across all 12 months.
-    # Example with 3 months completed: (FY27 Target - YTD) / 9 remaining months.
+    # remaining FY target. With Apr-Jun complete, 9 months remain.
+    # IMPORTANT: this is NOT FY27 Target / 12.
     remaining_months = max(12 - months, 1)
     out["Required RR to Target"] = (out["FY27 Target"] - out["YTD"]) / remaining_months
  
@@ -2078,7 +2078,17 @@ def final_sales_metrics(
     # Preserve management ordering and avoid accidental duplicate rows.
     frame = frame.loc[~frame.index.duplicated(keep="first")].copy()
     order = [label for label in FINAL_METRIC_ROWS if label in frame.index]
-    return frame.loc[order]
+    frame = frame.loc[order].copy()
+
+    # Always recalculate run-rate metrics from FINAL Target + YTD before display.
+    # This deliberately overrides any older Target/12 workbook/dashboard value.
+    # For the current workbook: months_done=3, so required RR = (Target - YTD) / 9.
+    frame_for_calc = frame.reset_index()
+    first_col = frame_for_calc.columns[0]
+    if first_col != "Metric":
+        frame_for_calc = frame_for_calc.rename(columns={first_col: "Metric"})
+    frame = _augment_final_runrate(frame_for_calc, months_done).set_index("Metric")
+    return frame
  
  
 def build_final_scenario_comparison(
@@ -4276,7 +4286,14 @@ def render_sales_kpi_card(title: str, row: pd.Series, frame: pd.DataFrame) -> st
     achievement = _num(row.get("Achievement %"))
     projected = _num(row.get("Projected FY %"))
     current_rr = _num(row.get("Current RR"))
-    required_rr = _num(row.get("Required RR to Target"))
+
+    # Recompute here as a final UI safeguard: remaining target / 9 remaining months.
+    # Example Net Sales: (58,699.46 - 17,852.62) / 9 = 4,538.54 Cr/month.
+    fy_target = _num(row.get("FY27 Target"))
+    ytd_value = _num(row.get("YTD"))
+    required_rr = None
+    if fy_target is not None and ytd_value is not None:
+        required_rr = (fy_target - ytd_value) / max(MONTHS_REMAINING, 1)
     pace_gap = None
     if current_rr is not None and required_rr is not None and required_rr != 0:
         pace_gap = current_rr / required_rr - 1.0
@@ -4437,7 +4454,7 @@ def render_business_driver_selector(
         {
             "label": "Required run rate",
             "value": fmt_cr(overall.get("Required RR to Target")),
-            "secondary": "Target ÷ 12 months",
+            "secondary": "(Target − YTD) ÷ 9 remaining months",
         },
         {
             "label": "Projected FY",
@@ -4605,7 +4622,7 @@ def render_current_runrate(grid: pd.DataFrame, basis: str, asset: str) -> None:
 
     glass_note(
         "The current run rate is the completed Apr–Jun achievement divided by three. "
-        "The required run rate is the FY target spread evenly across twelve months."
+        "The required run rate is the remaining FY target (Target − YTD) divided by the 9 remaining months."
     )
 
 # =============================================================================
@@ -5562,7 +5579,7 @@ def render_command_center(records: pd.DataFrame, payload: bytes) -> None:
  
     glass_note(
         "The current run rate is completed Apr–Jun achievement divided by three. The required "
-        "run rate is the FY target spread evenly across twelve months."
+        "run rate is the remaining FY target (Target − YTD) divided by the 9 remaining months."
     )
  
     # 05 · Scenario planning.
