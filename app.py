@@ -1,4 +1,6 @@
 from __future__ import annotations
+
+# PATCH VERSION: overlap-fix-v2 + AUM-current-performance
  
 import inspect
 import io
@@ -3266,6 +3268,126 @@ div[role="radiogroup"] > label div[data-testid="stMarkdownContainer"] p {
     text-align: center;
 }
 
+/* ---------- Streamlit text/icon overlap hardening ---------- */
+/*
+   IMPORTANT: On some corporate machines the Material Symbols web-font is
+   blocked. Streamlit then paints the icon name itself (for example
+   "keyboard_arrow_right") inside sidebar expanders. The long fallback text
+   sits on top of labels such as "Segment mapping" / "Channel mapping".
+
+   This patch does not redesign the sidebar. It removes only the broken icon
+   glyph and gives the expander label its own protected column.
+*/
+[data-testid="stExpander"] summary {
+    min-width: 0 !important;
+}
+
+/* Catch current and older Streamlit Material-icon wrappers. */
+[data-testid="stExpander"] summary [data-testid="stExpanderToggleIcon"],
+[data-testid="stExpander"] summary [data-testid="stIconMaterial"],
+[data-testid="stExpander"] summary [aria-hidden="true"],
+[data-testid="stExpander"] summary span[class*="material-symbol"],
+[data-testid="stExpander"] summary span[class*="material-icon"] {
+    font-size: 0 !important;
+    line-height: 0 !important;
+    letter-spacing: 0 !important;
+    text-indent: -9999px !important;
+    color: transparent !important;
+    overflow: hidden !important;
+    white-space: nowrap !important;
+    max-width: 18px !important;
+}
+
+/* Strong fallback for the exact sidebar overlap shown in the screenshot.
+   Streamlit places the expander toggle before the label. If the toggle loses
+   its icon font, constrain that first control to a tiny fixed slot so its
+   literal fallback text can never cross into the label. */
+[data-testid="stSidebar"] [data-testid="stExpander"] summary {
+    display: grid !important;
+    grid-template-columns: 18px minmax(0, 1fr) !important;
+    align-items: center !important;
+    column-gap: 8px !important;
+    width: 100% !important;
+    overflow: hidden !important;
+}
+[data-testid="stSidebar"] [data-testid="stExpander"] summary > * {
+    min-width: 0 !important;
+}
+[data-testid="stSidebar"] [data-testid="stExpander"] summary > :first-child {
+    width: 18px !important;
+    min-width: 18px !important;
+    max-width: 18px !important;
+    height: 18px !important;
+    overflow: hidden !important;
+    font-size: 0 !important;
+    line-height: 0 !important;
+    letter-spacing: 0 !important;
+    text-indent: -9999px !important;
+    color: transparent !important;
+    white-space: nowrap !important;
+}
+[data-testid="stSidebar"] [data-testid="stExpander"] summary > :first-child * {
+    font-size: 0 !important;
+    line-height: 0 !important;
+    letter-spacing: 0 !important;
+    text-indent: -9999px !important;
+    color: transparent !important;
+    overflow: hidden !important;
+    white-space: nowrap !important;
+}
+/* Replace the missing Material glyph with a font-independent chevron. */
+[data-testid="stSidebar"] [data-testid="stExpander"] summary > :first-child::after {
+    content: "›";
+    display: block !important;
+    width: 18px !important;
+    height: 18px !important;
+    text-align: center !important;
+    text-indent: 0 !important;
+    font-family: Arial, sans-serif !important;
+    font-size: 17px !important;
+    font-weight: 600 !important;
+    line-height: 18px !important;
+    color: var(--secondary) !important;
+    transform-origin: 50% 50%;
+}
+[data-testid="stSidebar"] [data-testid="stExpander"] details[open] summary > :first-child::after {
+    transform: rotate(90deg);
+}
+
+/* Keep the actual expander title in its own column and allow wrapping. */
+[data-testid="stSidebar"] [data-testid="stExpander"] summary p,
+[data-testid="stSidebar"] [data-testid="stExpander"] summary div[data-testid="stMarkdownContainer"] {
+    min-width: 0 !important;
+    margin: 0 !important;
+    white-space: normal !important;
+    overflow-wrap: anywhere !important;
+    word-break: normal !important;
+    line-height: 1.3 !important;
+}
+
+[data-testid="stSidebar"] [data-testid="stWidgetLabel"],
+[data-testid="stSidebar"] [data-testid="stMarkdownContainer"],
+[data-testid="stSidebar"] [data-testid="stCaptionContainer"],
+[data-testid="stMetricLabel"],
+[data-testid="stMetricValue"] {
+    min-width: 0 !important;
+}
+
+[data-testid="stSidebar"] [data-testid="stWidgetLabel"] p,
+[data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p,
+[data-testid="stSidebar"] [data-testid="stCaptionContainer"] p,
+[data-testid="stMetricLabel"] p,
+[data-testid="stMetricValue"] > div {
+    white-space: normal !important;
+    overflow-wrap: anywhere !important;
+    word-break: normal !important;
+    line-height: 1.3 !important;
+}
+
+.stTabs [data-baseweb="tab-list"] {
+    flex-wrap: wrap !important;
+}
+
 /* ---------- kpi card internals ---------- */
 .kpi-head {
     display: flex;
@@ -3910,6 +4032,45 @@ def _kpi_row_html(label: str, value: str, css: str = "") -> str:
     )
  
  
+def render_aum_hero(aum: pd.DataFrame) -> str:
+    """AUM card shown only in Current Performance Metrics."""
+    if not isinstance(aum, pd.DataFrame) or aum.empty or "Overall" not in aum.index:
+        return (
+            "<div class='glass-card'><div class='metric-label'>Assets under management</div>"
+            "<div class='metric-hero'>—</div>"
+            "<div class='metric-secondary'>AUM could not be located on the FINAL sheet.</div></div>"
+        )
+
+    row = aum.loc["Overall"]
+    achievement = _num(row.get("Achievement %"))
+    gap = _num(row.get("Gap to Target"))
+
+    rows = "".join([
+        _kpi_row_html("Target", fmt_cr(row.get("Target"))),
+        _kpi_row_html(
+            "Gap to target",
+            fmt_cr_signed(None if gap is None else -gap),
+            "neg" if (gap or 0) > 0 else "pos",
+        ),
+        _kpi_row_html("Achieved", fmt_pct(achievement), "gold"),
+    ])
+
+    return (
+        "<div class='glass-card'>"
+        "<div class='kpi-head'><span class='metric-label'>Assets under management</span>"
+        "<span class='kpi-tag'>FINAL</span></div>"
+        f"<div class='metric-hero gold'>{escape(fmt_cr(row.get('Current')))}</div>"
+        "<div class='metric-label'>Current AUM</div>"
+        + progress_html(
+            achievement,
+            marker_pct=1.0,
+            left_label=f"{fmt_pct(achievement)} of target",
+            right_label=f"target {fmt_cr(row.get('Target'))}",
+        )
+        + f"<div class='kpi-rows'>{rows}</div></div>"
+    )
+
+
 def render_sales_kpi_card(title: str, row: pd.Series) -> str:
     """Gross / Net sales card: YTD is the hero, pace and projection support it."""
     if row is None or len(row) == 0:
@@ -3966,7 +4127,7 @@ def _overall_row(frame: Any) -> pd.Series:
  
  
 def render_current_performance(final_metrics: Dict[str, Any], model: ScenarioModel) -> None:
-    """02 · Current Performance Metrics · FINAL - Gross and Net Sales only."""
+    """02 · Current Performance Metrics · FINAL - AUM, Gross and Net at one glance."""
     section_header(
         "02",
         "Current Performance Metrics · FINAL",
@@ -3975,15 +4136,26 @@ def render_current_performance(final_metrics: Dict[str, Any], model: ScenarioMod
 
     gs = final_sales_metrics(final_metrics, model, "GS")
     ns = final_sales_metrics(final_metrics, model, "NS")
+    aum = final_metrics.get("AUM")
+    aum_frame = aum if isinstance(aum, pd.DataFrame) else pd.DataFrame()
 
-    cards = (
-        render_sales_kpi_card("Gross Sales", _overall_row(gs))
-        + render_sales_kpi_card("Net Sales", _overall_row(ns))
-    )
-    st.markdown(f"<div class='hero-grid no-aum'>{cards}</div>", unsafe_allow_html=True)
+    # Current Performance Metrics must always contain these three cards in this
+    # order: AUM, Gross Sales, Net Sales. AUM remains excluded from the separate
+    # Business Drivers section, as requested.
+    aum_card = render_aum_hero(aum_frame)
+    gross_card = render_sales_kpi_card("Gross Sales", _overall_row(gs))
+    net_card = render_sales_kpi_card("Net Sales", _overall_row(ns))
+    cards = aum_card + gross_card + net_card
+    st.markdown(f"<div class='hero-grid'>{cards}</div>", unsafe_allow_html=True)
 
     gs_row, ns_row = _overall_row(gs), _overall_row(ns)
+    aum_row = _overall_row(aum_frame)
     tiles = [
+        {
+            "label": "AUM gap to target",
+            "value": fmt_cr(aum_row.get("Gap to Target")),
+            "secondary": "Target less current AUM",
+        },
         {
             "label": "Gross sales shortfall",
             "value": fmt_cr(
@@ -4001,19 +4173,6 @@ def render_current_performance(final_metrics: Dict[str, Any], model: ScenarioMod
             "secondary": "Still to book by March 2027",
         },
         {
-            "label": "Gross projected FY",
-            "value": fmt_pct(gs_row.get("Projected FY %")),
-            "delta": fmt_pts(
-                None if _num(gs_row.get("Projected FY %")) is None
-                else _num(gs_row.get("Projected FY %")) - 1.0
-            ),
-            "tone": _tone_for(
-                None if _num(gs_row.get("Projected FY %")) is None
-                else _num(gs_row.get("Projected FY %")) - 1.0
-            ),
-            "secondary": "At the current run rate",
-        },
-        {
             "label": "Net projected FY",
             "value": fmt_pct(ns_row.get("Projected FY %")),
             "delta": fmt_pts(
@@ -4029,8 +4188,9 @@ def render_current_performance(final_metrics: Dict[str, Any], model: ScenarioMod
     ]
     kpi_strip(tiles)
     glass_note(
-        "Gross Sales and Net Sales are read directly from the workbook's <b>FINAL</b> sheet. "
-        "Achievement, run rate and projected FY are derived from those same Target and YTD values."
+        "AUM, Gross Sales and Net Sales are read directly from the workbook's "
+        "<b>FINAL</b> sheet. Achievement, run rate and projected FY are derived from those "
+        "same Target and YTD values."
     )
 
 def render_business_driver_selector(
