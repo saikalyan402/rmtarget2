@@ -10,15 +10,6 @@ import pandas as pd
 import streamlit as st
 from openpyxl import load_workbook as openpyxl_load_workbook
  
-try:  # Plotly powers the strategic visuals; the app still runs without it.
-    import plotly.graph_objects as go
-    import plotly.io as pio
- 
-    PLOTLY_AVAILABLE = True
-except Exception:  # pragma: no cover - optional dependency
-    go = None
-    pio = None
-    PLOTLY_AVAILABLE = False
  
  
 # =============================================================================
@@ -157,7 +148,7 @@ SCENARIOS: Dict[int, Dict[str, str]] = {
         "thesis": "Build momentum now. Create a January buffer. Protect March.",
         "explanation": (
             "Build progressive month-on-month momentum from July 2026 to reach the January 2027 "
-            "milestone, create sufficient buffer to absorb Feb-Mar AUM leakage, and protect the "
+            "milestone, create sufficient buffer to absorb Feb-Mar run-rate leakage, and protect the "
             "March 2027 target."
         ),
         "milestone": "January 2027 milestone → Feb-Mar leakage absorbed → March 2027 target held",
@@ -3238,12 +3229,43 @@ a, a:visited { color: var(--gold-soft); }
     gap: 16px;
     margin-bottom: 8px;
 }
+.hero-grid.no-aum {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
 .trio-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
     gap: 14px;
 }
  
+/* ---------- text-overlap safety (layout/colors unchanged) ---------- */
+.glass-card, .glass-panel, .glass-kpi,
+.kpi-grid > *, .hero-grid > *, .trio-grid > *,
+.kpi-head, .kpi-row, .progress-legend, .exec-header > *, .exec-status > * {
+    min-width: 0;
+}
+.metric-label, .metric-hero, .metric-value, .metric-secondary, .metric-delta,
+.kpi-row .k, .kpi-row .v, .scenario-hero .title, .scenario-hero .thesis,
+.scenario-hero .detail, .scenario-hero .milestone, .glass-note, .glass-callout,
+.exec-title, .exec-sub, .status-chip .v {
+    overflow-wrap: anywhere;
+    word-break: normal;
+}
+.kpi-row .k { flex: 1 1 auto; }
+.kpi-row .v { flex: 0 1 52%; text-align: right; }
+.progress-legend { gap: 10px; flex-wrap: wrap; }
+.progress-legend span:last-child { margin-left: auto; text-align: right; }
+div[role="radiogroup"] > label { max-width: 100%; }
+div[role="radiogroup"] > label div[data-testid="stMarkdownContainer"] p {
+    white-space: normal !important;
+    overflow-wrap: anywhere;
+}
+.stTabs [data-baseweb="tab"] {
+    min-width: 0;
+    white-space: normal;
+    text-align: center;
+}
+
 /* ---------- kpi card internals ---------- */
 .kpi-head {
     display: flex;
@@ -3644,7 +3666,7 @@ hr { border-color: var(--border) !important; }
     .exec-title { font-size: 1.85rem; }
 }
 @media (max-width: 760px) {
-    .hero-grid { grid-template-columns: 1fr; }
+    .hero-grid, .hero-grid.no-aum { grid-template-columns: 1fr; }
     .kpi-grid { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
     .metric-hero { font-size: 2.05rem; }
     .exec-header { flex-direction: column; align-items: flex-start; }
@@ -3661,74 +3683,6 @@ hr { border-color: var(--border) !important; }
 def inject_theme() -> None:
     """Inject the liquid-glass design system exactly once per run."""
     st.markdown(GLASS_CSS, unsafe_allow_html=True)
- 
- 
-# --- Plotly ------------------------------------------------------------------
- 
-def _build_plotly_template():
-    axis = dict(
-        gridcolor=GRID_LINE,
-        zerolinecolor=GRID_LINE,
-        linecolor="rgba(255,255,255,0.14)",
-        tickfont=dict(color=INK_SOFT, size=11),
-        title=dict(font=dict(color=INK_MUTED, size=11)),
-        showline=False,
-    )
-    return go.layout.Template(
-        layout=go.Layout(
-            paper_bgcolor="rgba(0,0,0,0)",
-            plot_bgcolor="rgba(0,0,0,0)",
-            font=dict(family=FONT_STACK, color=INK, size=12),
-            colorway=[GOLD, "#8E93A1", GREEN, "#7C7FE0", RED, "#5FB0C9"],
-            xaxis=axis,
-            yaxis=axis,
-            margin=dict(l=8, r=8, t=44, b=8),
-            hoverlabel=dict(
-                bgcolor="rgba(14,15,20,0.94)",
-                bordercolor="rgba(255,255,255,0.16)",
-                font=dict(color=INK, family=FONT_STACK, size=12),
-            ),
-            legend=dict(
-                orientation="h", yanchor="bottom", y=1.02, x=0,
-                bgcolor="rgba(0,0,0,0)", font=dict(color=INK_SOFT, size=11),
-            ),
-            title=dict(font=dict(color=INK, size=14), x=0, xanchor="left"),
-        )
-    )
- 
- 
-APPLE_PLOTLY_TEMPLATE = _build_plotly_template() if PLOTLY_AVAILABLE else None
-if PLOTLY_AVAILABLE:  # pragma: no cover - depends on optional dependency
-    pio.templates["apple_glass"] = APPLE_PLOTLY_TEMPLATE
-    pio.templates.default = "apple_glass"
- 
-PLOTLY_CONFIG = {"displayModeBar": False, "responsive": True}
- 
- 
-def _chart_kwargs() -> Dict[str, Any]:
-    """Keyword arguments st.plotly_chart accepts in this Streamlit version."""
-    kwargs: Dict[str, Any] = {}
-    try:
-        parameters = inspect.signature(st.plotly_chart).parameters
-    except (TypeError, ValueError):  # pragma: no cover - stubbed or exotic builds
-        return kwargs
-    if "theme" in parameters:
-        # None keeps the custom template; "streamlit" would override it.
-        kwargs["theme"] = None
-    if "config" in parameters:
-        kwargs["config"] = PLOTLY_CONFIG
-    stretch_default = "width" in parameters and parameters["width"].default == "stretch"
-    if "use_container_width" in parameters and not stretch_default:
-        kwargs["use_container_width"] = True
-    return kwargs
- 
- 
-def show_figure(fig: Any, height: int = 360) -> None:
-    """Render a Plotly figure with the shared executive styling."""
-    if fig is None:
-        return
-    fig.update_layout(template="apple_glass", height=height, autosize=True)
-    st.plotly_chart(fig, **_chart_kwargs())
  
  
 # --- Small HTML helpers -------------------------------------------------------
@@ -3956,45 +3910,6 @@ def _kpi_row_html(label: str, value: str, css: str = "") -> str:
     )
  
  
-def render_aum_hero(aum: pd.DataFrame) -> str:
-    """AUM card - the core business base, given the strongest visual weight."""
-    if not isinstance(aum, pd.DataFrame) or aum.empty or "Overall" not in aum.index:
-        return (
-            "<div class='glass-card'><div class='metric-label'>Assets under management</div>"
-            "<div class='metric-hero'>—</div>"
-            "<div class='metric-secondary'>AUM could not be located on the FINAL sheet.</div></div>"
-        )
- 
-    row = aum.loc["Overall"]
-    achievement = _num(row.get("Achievement %"))
-    gap = _num(row.get("Gap to Target"))
- 
-    rows = "".join([
-        _kpi_row_html("Target", fmt_cr(row.get("Target"))),
-        _kpi_row_html(
-            "Gap to target",
-            fmt_cr_signed(None if gap is None else -gap),
-            "neg" if (gap or 0) > 0 else "pos",
-        ),
-        _kpi_row_html("Achieved", fmt_pct(achievement), "gold"),
-    ])
- 
-    return (
-        "<div class='glass-card'>"
-        "<div class='kpi-head'><span class='metric-label'>Assets under management</span>"
-        "<span class='kpi-tag'>FINAL</span></div>"
-        f"<div class='metric-hero gold'>{escape(fmt_cr(row.get('Current')))}</div>"
-        "<div class='metric-label'>Current AUM</div>"
-        + progress_html(
-            achievement,
-            marker_pct=1.0,
-            left_label=f"{fmt_pct(achievement)} of target",
-            right_label=f"target {fmt_cr(row.get('Target'))}",
-        )
-        + f"<div class='kpi-rows'>{rows}</div></div>"
-    )
- 
- 
 def render_sales_kpi_card(title: str, row: pd.Series) -> str:
     """Gross / Net sales card: YTD is the hero, pace and projection support it."""
     if row is None or len(row) == 0:
@@ -4051,32 +3966,24 @@ def _overall_row(frame: Any) -> pd.Series:
  
  
 def render_current_performance(final_metrics: Dict[str, Any], model: ScenarioModel) -> None:
-    """02 · Current Performance Metrics · FINAL - AUM, Gross and Net at one glance."""
+    """02 · Current Performance Metrics · FINAL - Gross and Net Sales only."""
     section_header(
         "02",
         "Current Performance Metrics · FINAL",
         "Where the business stands before any scenario is applied",
     )
- 
+
     gs = final_sales_metrics(final_metrics, model, "GS")
     ns = final_sales_metrics(final_metrics, model, "NS")
-    aum = final_metrics.get("AUM")
- 
+
     cards = (
-        render_aum_hero(aum if isinstance(aum, pd.DataFrame) else pd.DataFrame())
-        + render_sales_kpi_card("Gross Sales", _overall_row(gs))
+        render_sales_kpi_card("Gross Sales", _overall_row(gs))
         + render_sales_kpi_card("Net Sales", _overall_row(ns))
     )
-    st.markdown(f"<div class='hero-grid'>{cards}</div>", unsafe_allow_html=True)
- 
+    st.markdown(f"<div class='hero-grid no-aum'>{cards}</div>", unsafe_allow_html=True)
+
     gs_row, ns_row = _overall_row(gs), _overall_row(ns)
-    aum_row = _overall_row(aum)
     tiles = [
-        {
-            "label": "AUM gap to target",
-            "value": fmt_cr(aum_row.get("Gap to Target")),
-            "secondary": "Target less current AUM",
-        },
         {
             "label": "Gross sales shortfall",
             "value": fmt_cr(
@@ -4094,6 +4001,19 @@ def render_current_performance(final_metrics: Dict[str, Any], model: ScenarioMod
             "secondary": "Still to book by March 2027",
         },
         {
+            "label": "Gross projected FY",
+            "value": fmt_pct(gs_row.get("Projected FY %")),
+            "delta": fmt_pts(
+                None if _num(gs_row.get("Projected FY %")) is None
+                else _num(gs_row.get("Projected FY %")) - 1.0
+            ),
+            "tone": _tone_for(
+                None if _num(gs_row.get("Projected FY %")) is None
+                else _num(gs_row.get("Projected FY %")) - 1.0
+            ),
+            "secondary": "At the current run rate",
+        },
+        {
             "label": "Net projected FY",
             "value": fmt_pct(ns_row.get("Projected FY %")),
             "delta": fmt_pts(
@@ -4109,52 +4029,21 @@ def render_current_performance(final_metrics: Dict[str, Any], model: ScenarioMod
     ]
     kpi_strip(tiles)
     glass_note(
-        "AUM, Gross Sales and Net Sales are read directly from the workbook's "
-        "<b>FINAL</b> sheet. Achievement, run rate and projected FY are derived from those "
-        "same Target and YTD values."
+        "Gross Sales and Net Sales are read directly from the workbook's <b>FINAL</b> sheet. "
+        "Achievement, run rate and projected FY are derived from those same Target and YTD values."
     )
- 
- 
-def driver_chart(frame: pd.DataFrame, selected: str, title: str) -> Any:
-    """Projected FY % by driver, with the 100% target as the reference line."""
-    if not PLOTLY_AVAILABLE or frame.empty:
-        return None
-    labels = frame.index.tolist()
-    values = [(_num(frame.loc[label].get("Projected FY %")) or 0.0) * 100.0 for label in labels]
-    colors = [
-        GOLD if label == selected else "rgba(255,255,255,0.24)"
-        for label in labels
-    ]
-    fig = go.Figure(
-        go.Bar(
-            x=labels,
-            y=values,
-            marker=dict(color=colors, line=dict(width=0)),
-            hovertemplate="%{x}<br>Projected FY %{y:.1f}%<extra></extra>",
-        )
-    )
-    fig.add_hline(
-        y=100,
-        line=dict(color="rgba(255,255,255,0.35)", width=1, dash="dot"),
-        annotation_text="FY target",
-        annotation_position="top left",
-        annotation_font=dict(color=INK_MUTED, size=10),
-    )
-    fig.update_layout(title=title, yaxis_title="Projected FY %")
-    return fig
- 
- 
+
 def render_business_driver_selector(
     final_metrics: Dict[str, Any],
     model: ScenarioModel,
 ) -> None:
-    """03 · Business drivers - asset class and channel, straight from FINAL."""
+    """03 · Business drivers - shown only by Asset Class and Channel."""
     section_header(
         "03",
         "Business drivers",
-        "Which asset classes and channels are carrying the year",
+        "Performance is segregated only by asset class and channel",
     )
- 
+
     st.markdown("<div class='metric-label'>Sales basis</div>", unsafe_allow_html=True)
     basis_label = st.radio(
         "Sales basis",
@@ -4166,39 +4055,27 @@ def render_business_driver_selector(
     )
     basis = "GS" if basis_label == SALES_LABEL["GS"] else "NS"
     st.session_state["display_basis"] = basis
- 
+
     frame = final_sales_metrics(final_metrics, model, basis)
     if frame.empty:
         glass_note("Driver metrics could not be located on the FINAL sheet.")
         return
- 
-    available = [label for label in FINAL_METRIC_ROWS if label in frame.index]
-    reset_stale_selection(f"driver_lens_{basis}", available)
-    st.markdown("<div class='metric-label'>Driver</div>", unsafe_allow_html=True)
-    selected = st.radio(
-        "Driver",
-        available,
-        index=0,
-        horizontal=True,
-        key=f"driver_lens_{basis}",
-        label_visibility="collapsed",
-    )
- 
-    row = frame.loc[selected]
-    projected = _num(row.get("Projected FY %"))
+
+    overall = _overall_row(frame)
+    projected = _num(overall.get("Projected FY %"))
     kpi_strip([
-        {"label": f"{selected} · FY27 target", "value": fmt_cr(row.get("FY27 Target"))},
+        {"label": "FY27 target", "value": fmt_cr(overall.get("FY27 Target"))},
         {
             "label": "YTD",
-            "value": fmt_cr(row.get("YTD")),
-            "delta": fmt_pct(row.get("Achievement %")),
+            "value": fmt_cr(overall.get("YTD")),
+            "delta": fmt_pct(overall.get("Achievement %")),
             "tone": "gold",
             "secondary": "of FY27 target booked",
         },
-        {"label": "Current run rate", "value": fmt_cr(row.get("Current RR"))},
+        {"label": "Current run rate", "value": fmt_cr(overall.get("Current RR"))},
         {
             "label": "Required run rate",
-            "value": fmt_cr(row.get("Required RR to Target")),
+            "value": fmt_cr(overall.get("Required RR to Target")),
             "secondary": "Target ÷ 12 months",
         },
         {
@@ -4208,13 +4085,7 @@ def render_business_driver_selector(
             "tone": _tone_for(None if projected is None else projected - 1.0),
         },
     ])
- 
-    figure = driver_chart(frame, selected, f"{SALES_LABEL[basis]} · projected FY by driver")
-    if figure is not None:
-        show_figure(figure, height=330)
-    elif not frame.empty:
-        st.bar_chart(frame[["Projected FY %"]])
- 
+
     display_columns = [
         "FY27 Target", "YTD", "Achievement %", "Current RR",
         "Required RR to Target", "Estimated FY @ Current RR", "Projected FY %",
@@ -4224,41 +4095,28 @@ def render_business_driver_selector(
         "Current RR": "cr", "Required RR to Target": "cr",
         "Estimated FY @ Current RR": "cr", "Projected FY %": "pct",
     }
- 
+
     asset_frame = frame.loc[[i for i in FINAL_ASSET_ROWS if i in frame.index]]
     channel_frame = frame.loc[[i for i in FINAL_CHANNEL_ROWS if i in frame.index]]
- 
-    tabs = st.tabs(["Asset class", "Channel", "AUM"])
+
+    tabs = st.tabs(["Asset class", "Channel"])
     with tabs[0]:
-        render_glass_table(
-            asset_frame.reset_index().rename(columns={"Metric": "Scope"})[["Scope", *display_columns]],
-            formats,
-        )
-    with tabs[1]:
-        render_glass_table(
-            channel_frame.reset_index().rename(columns={"Metric": "Scope"})[["Scope", *display_columns]],
-            formats,
-        )
-    with tabs[2]:
-        aum = final_metrics.get("AUM")
-        if not isinstance(aum, pd.DataFrame) or aum.empty:
-            glass_note("AUM metrics could not be located on the FINAL sheet.")
+        if asset_frame.empty:
+            glass_note("Asset-class metrics could not be located on the FINAL sheet.")
         else:
-            aum_display = aum.reset_index().rename(columns={"Metric": "Scope"})
             render_glass_table(
-                aum_display,
-                {
-                    "Scope": "txt", "Target": "cr", "Current": "cr",
-                    "Achievement %": "pct", "Gap to Target": "cr_signed",
-                },
-                total_rows=("Overall",),
+                asset_frame.reset_index().rename(columns={"Metric": "Scope"})[["Scope", *display_columns]],
+                formats,
             )
-            glass_note(
-                "AUM keeps the FINAL sheet's own Target and Current columns; "
-                "achievement and gap are derived from those two values."
+    with tabs[1]:
+        if channel_frame.empty:
+            glass_note("Channel metrics could not be located on the FINAL sheet.")
+        else:
+            render_glass_table(
+                channel_frame.reset_index().rename(columns={"Metric": "Scope"})[["Scope", *display_columns]],
+                formats,
             )
- 
- 
+
 # =============================================================================
 # 16. ANALYSIS SCOPE & CURRENT RUN RATE
 # =============================================================================
@@ -4298,13 +4156,13 @@ def apply_management_cuts(records: pd.DataFrame, channel: str, location: str) ->
 def render_analysis_scope(records: pd.DataFrame) -> Tuple[str, str, str, pd.DataFrame]:
     """
     Scope controls that recalculate the analytical engine.
- 
-    Channel and location filter the RM calculation sheets; asset class selects
-    the metric that every downstream card reports on.
+
+    Channel and location remain as existing filters. Asset-class results are
+    shown together downstream instead of forcing an Equity / Debt / Liquid drill-down.
     """
     st.markdown("<div class='metric-label'>Analysis scope</div>", unsafe_allow_html=True)
-    left, middle, right = st.columns([1, 1, 1])
- 
+    left, middle = st.columns([1, 1])
+
     with left:
         present = set(records.get("Vertical", pd.Series(dtype=str)).astype(str))
         channel_options = ["All"] + [v for v in VERTICALS if v in present]
@@ -4316,14 +4174,13 @@ def render_analysis_scope(records: pd.DataFrame) -> Tuple[str, str, str, pd.Data
         location = st.selectbox(
             "Location / market type", location_options, index=0, key="scope_location"
         )
-    with right:
-        asset = st.selectbox("Asset class", ["All", *ASSETS], index=0, key="scope_asset")
- 
+
+    # Asset classes stay together; no Equity / Debt / Liquid selector.
+    asset = "All"
     filtered = apply_management_cuts(records, channel, location)
- 
+
     active = [x for x in (
         channel if channel != "All" else None,
-        asset if asset != "All" else None,
         location if location != "All" else None,
     ) if x]
     scope_text = " · ".join(active) if active else "All business"
@@ -4333,7 +4190,7 @@ def render_analysis_scope(records: pd.DataFrame) -> Tuple[str, str, str, pd.Data
         "Every scenario below is recalculated on this population.</div>",
         unsafe_allow_html=True,
     )
- 
+
     if filtered.empty:
         glass_callout(
             "No RM records match this scope. Widen the channel or location selection "
@@ -4341,49 +4198,19 @@ def render_analysis_scope(records: pd.DataFrame) -> Tuple[str, str, str, pd.Data
             tone="warn",
         )
     return channel, location, asset, filtered
- 
- 
-def pace_figure(grid: pd.DataFrame, basis: str) -> Any:
-    """Current pace against the pace the FY target requires, by asset class."""
-    if not PLOTLY_AVAILABLE or grid.empty:
-        return None
-    labels, current, required = [], [], []
-    for asset in ASSETS:
-        base = summarize_current(grid, sales=basis, asset=asset)
-        labels.append(asset)
-        current.append(_z(base.get("current_rr")))
-        required.append(_z(base.get("fy_target")) / 12.0)
-    fig = go.Figure()
-    fig.add_trace(go.Bar(
-        y=labels, x=current, orientation="h", name="Current run rate",
-        marker=dict(color="rgba(255,255,255,0.26)", line=dict(width=0)),
-        hovertemplate="%{y} · current %{x:,.0f} Cr<extra></extra>",
-    ))
-    fig.add_trace(go.Bar(
-        y=labels, x=required, orientation="h", name="Required run rate",
-        marker=dict(color=GOLD, line=dict(width=0)), opacity=0.92,
-        hovertemplate="%{y} · required %{x:,.0f} Cr<extra></extra>",
-    ))
-    fig.update_layout(
-        barmode="group",
-        bargap=0.35,
-        title=f"{SALES_LABEL[basis]} · monthly pace by asset class (\u20b9 Cr)",
-    )
-    return fig
- 
- 
+
 def render_current_runrate(grid: pd.DataFrame, basis: str, asset: str) -> None:
-    """04 · Current pace, required pace and the projected finish for the scope."""
+    """04 · Current pace, required pace and projected finish. Graph removed."""
     section_header(
         "04",
         "Current run rate & target gap",
         "The pace the business is running at, against the pace the target needs",
     )
- 
+
     if grid.empty:
         glass_note("No records in scope, so the current run rate cannot be calculated.")
         return
- 
+
     cell = summarize_current(grid, sales=basis, asset=None if asset == "All" else asset)
     required_rr = _z(cell.get("fy_target")) / 12.0
     current_rr = _num(cell.get("current_rr"))
@@ -4392,7 +4219,7 @@ def render_current_runrate(grid: pd.DataFrame, basis: str, asset: str) -> None:
         pace_gap = current_rr / required_rr - 1.0
     projected = _num(cell.get("current_march_pct"))
     shortfall = _z(cell.get("fy_target")) - _z(cell.get("current_march"))
- 
+
     kpi_strip([
         {"label": "FY target", "value": fmt_cr(cell.get("fy_target")),
          "secondary": f"{SALES_LABEL[basis]} · RM calculation sheets"},
@@ -4412,31 +4239,12 @@ def render_current_runrate(grid: pd.DataFrame, basis: str, asset: str) -> None:
          "tone": _tone_for(-shortfall),
          "secondary": "FY target less projected March"},
     ])
- 
-    figure = pace_figure(grid, basis)
-    if figure is not None:
-        show_figure(figure, height=300)
-    else:
-        frame = pd.DataFrame(
-            {
-                "Current run rate": [
-                    _z(summarize_current(grid, sales=basis, asset=a).get("current_rr")) for a in ASSETS
-                ],
-                "Required run rate": [
-                    _z(summarize_current(grid, sales=basis, asset=a).get("fy_target")) / 12.0
-                    for a in ASSETS
-                ],
-            },
-            index=ASSETS,
-        )
-        st.bar_chart(frame)
- 
+
     glass_note(
         "The current run rate is the completed Apr–Jun achievement divided by three. "
         "The required run rate is the FY target spread evenly across twelve months."
     )
- 
- 
+
 # =============================================================================
 # 17. SCENARIO PLANNING COMPONENTS
 # =============================================================================
@@ -4485,14 +4293,14 @@ def render_scenario_controls(scenario_id: int, base_params: Dict[str, Any]) -> D
                 format="%d%%", key="s7_mar",
             ) / 100.0
             params["leakage"] = columns[2].slider(
-                "February–March AUM leakage", 0, 30, int(S7_DEFAULT_LEAKAGE * 100), 1,
+                "February–March leakage", 0, 30, int(S7_DEFAULT_LEAKAGE * 100), 1,
                 format="%d%%", key="s7_leak",
             ) / 100.0
  
     elif scenario_id == 8:
         with st.expander("Channel assumptions", expanded=False):
             params["leakage"] = st.slider(
-                "February–March AUM leakage", 0, 30, int(S8_DEFAULT_LEAKAGE * 100), 1,
+                "February–March leakage", 0, 30, int(S8_DEFAULT_LEAKAGE * 100), 1,
                 format="%d%%", key="s8_leakage",
             ) / 100.0
             growth = dict(params.get("channel_growth", S8_DEFAULT_GROWTH))
@@ -4532,7 +4340,7 @@ def render_scenario_controls(scenario_id: int, base_params: Dict[str, Any]) -> D
             ) / 100.0
             params["optimizer_target"] = ambition
             params["leakage"] = columns[1].slider(
-                "February–March AUM leakage", 0, 30, int(S8_DEFAULT_LEAKAGE * 100), 1,
+                "February–March leakage", 0, 30, int(S8_DEFAULT_LEAKAGE * 100), 1,
                 format="%d%%", key="s9_leakage",
             ) / 100.0
             # The optimiser solves every channel against the selected ambition,
@@ -4712,135 +4520,21 @@ def trajectory_cell(model: ScenarioModel, basis: str, asset: str) -> Dict[str, A
     return cell
  
  
-def momentum_figure(cell: Dict[str, Any], title: str) -> Any:
-    """Build → accelerate → January milestone → leakage → protect March."""
-    if not PLOTLY_AVAILABLE:
-        return None
-    trajectory = cell.get("trajectory") or []
-    if not trajectory:
-        return None
- 
-    x = list(range(len(FUTURE_MONTHS)))
-    current_rr = _z(cell.get("current_rr"))
- 
-    fig = go.Figure()
-    fig.add_vrect(
-        x0=MONTHS_JUL_JAN - 0.5, x1=len(FUTURE_MONTHS) - 0.5,
-        fillcolor="rgba(255,107,107,0.07)", line_width=0, layer="below",
-        annotation_text="Feb–Mar leakage", annotation_position="top left",
-        annotation_font=dict(color=INK_MUTED, size=10),
-    )
-    fig.add_trace(go.Scatter(
-        x=x, y=[current_rr] * len(FUTURE_MONTHS),
-        mode="lines", name="Current run rate",
-        line=dict(color="rgba(255,255,255,0.32)", width=1.6, dash="dot"),
-        hovertemplate="Current pace %{y:,.0f} Cr<extra></extra>",
-    ))
-    fig.add_trace(go.Scatter(
-        x=x, y=[_z(v) for v in trajectory],
-        mode="lines+markers", name="Required trajectory",
-        line=dict(color=GOLD, width=2.6, shape="spline"),
-        marker=dict(size=6, color=GOLD, line=dict(width=0)),
-        fill="tozeroy", fillcolor="rgba(216,183,106,0.10)",
-        hovertemplate="%{text}: %{y:,.0f} Cr<extra></extra>",
-        text=FUTURE_MONTHS,
-    ))
-    january_rr = _z(trajectory[MONTHS_JUL_JAN - 1])
-    fig.add_annotation(
-        x=MONTHS_JUL_JAN - 1, y=january_rr,
-        text="January milestone",
-        showarrow=True, arrowhead=0, arrowwidth=1,
-        arrowcolor="rgba(216,183,106,0.6)", ax=0, ay=-38,
-        font=dict(color=GOLD, size=11),
-    )
-    fig.update_layout(
-        title=title,
-        xaxis=dict(tickmode="array", tickvals=x, ticktext=FUTURE_MONTHS),
-        yaxis_title="Monthly run rate (\u20b9 Cr)",
-    )
-    return fig
- 
- 
-def cumulative_figure(cell: Dict[str, Any], title: str) -> Any:
-    """Cumulative achievement against the FY target line."""
-    if not PLOTLY_AVAILABLE:
-        return None
-    trajectory = cell.get("trajectory") or []
-    fy_target = _num(cell.get("fy_target"))
-    if not trajectory or not fy_target:
-        return None
- 
-    cumulative = []
-    running = _z(cell.get("ytd_ach"))
-    for value in trajectory:
-        running += _z(value)
-        cumulative.append(running / fy_target * 100.0)
- 
-    x = list(range(len(FUTURE_MONTHS)))
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(
-        x=x, y=cumulative, mode="lines+markers", name="Cumulative achievement",
-        line=dict(color=GOLD, width=2.4, shape="spline"),
-        marker=dict(size=5, color=GOLD),
-        fill="tozeroy", fillcolor="rgba(216,183,106,0.09)",
-        hovertemplate="%{text}: %{y:.1f}% of FY target<extra></extra>",
-        text=FUTURE_MONTHS,
-    ))
-    fig.add_hline(
-        y=100, line=dict(color="rgba(255,255,255,0.35)", width=1, dash="dot"),
-        annotation_text="FY target", annotation_position="bottom right",
-        annotation_font=dict(color=INK_MUTED, size=10),
-    )
-    fig.add_vline(
-        x=MONTHS_JUL_JAN - 1, line=dict(color="rgba(216,183,106,0.35)", width=1),
-    )
-    fig.update_layout(
-        title=title,
-        xaxis=dict(tickmode="array", tickvals=x, ticktext=FUTURE_MONTHS),
-        yaxis_title="Cumulative % of FY target",
-    )
-    return fig
- 
- 
 def render_scenario_trajectory(model: ScenarioModel, basis: str, asset: str) -> None:
-    """07 · Monthly progression, January milestone and March outcome."""
+    """07 · Monthly progression shown as data only; all graphs are removed."""
     section_header(
         "07",
         "Scenario trajectory",
         "Month by month from July 2026 to March 2027",
     )
- 
+
     cell = trajectory_cell(model, basis, asset)
-    trajectory = cell.get("trajectory") or []
- 
-    figure = momentum_figure(
-        cell, f"{SALES_LABEL[basis]} · required monthly run rate"
-    )
-    if figure is not None:
-        show_figure(figure, height=380)
-    elif trajectory:
-        st.line_chart(
-            pd.DataFrame(
-                {
-                    "Current run rate": [_z(cell.get("current_rr"))] * len(trajectory),
-                    "Required trajectory": trajectory,
-                },
-                index=MONTH_DATES[: len(trajectory)],
-            )
-        )
- 
-    cumulative = cumulative_figure(cell, "Cumulative achievement against the FY target")
-    if cumulative is not None:
-        show_figure(cumulative, height=300)
- 
     frame, formats = build_momentum_analysis(cell)
-    with st.expander("Month-by-month detail", expanded=False):
-        render_glass_table(frame, formats)
- 
+    render_glass_table(frame, formats)
+
     if model.scenario_id == 7:
         render_momentum_detail(model, basis)
- 
- 
+
 def render_momentum_detail(model: ScenarioModel, basis: str) -> None:
     """Scenario 7 specifics: binding milestone, buffer, leakage and sensitivity."""
     cell = model.cell(basis)
@@ -4932,49 +4626,17 @@ def render_momentum_detail(model: ScenarioModel, basis: str) -> None:
         )
  
  
-def revenue_waterfall(bundle: Dict[str, Any]) -> Any:
-    """Baseline revenue → asset-class contributions → scenario revenue."""
-    if not PLOTLY_AVAILABLE:
-        return None
-    labels = ["Baseline"] + ASSETS + ["Scenario"]
-    values = [bundle["baseline"]["total"]]
-    values += [_z(bundle["incremental"]["by_asset"].get(asset)) for asset in ASSETS]
-    values += [bundle["scenario"]["total"]]
-    measures = ["absolute"] + ["relative"] * len(ASSETS) + ["total"]
- 
-    fig = go.Figure(go.Waterfall(
-        orientation="v",
-        measure=measures,
-        x=labels,
-        y=values,
-        text=[fmt_cr(v, 1) for v in values],
-        textposition="outside",
-        textfont=dict(color=INK_SOFT, size=11),
-        connector=dict(line=dict(color="rgba(255,255,255,0.14)", width=1)),
-        increasing=dict(marker=dict(color=GOLD)),
-        decreasing=dict(marker=dict(color=RED)),
-        totals=dict(marker=dict(color="rgba(255,255,255,0.30)")),
-        hovertemplate="%{x}: %{y:,.1f} Cr<extra></extra>",
-    ))
-    fig.update_layout(
-        title="Revenue bridge (\u20b9 Cr)",
-        yaxis_title="\u20b9 Cr",
-        showlegend=False,
-    )
-    return fig
- 
- 
 def render_revenue_impact(model: ScenarioModel) -> Dict[str, Any]:
-    """08 · Revenue impact - asset-class rates, never a blended rate."""
+    """08 · Revenue impact as KPI + table only; graph removed."""
     section_header(
         "08",
         "Revenue impact",
         "Equity 60 bps · Debt 20 bps · Liquid 10 bps on Net Sales",
     )
- 
+
     bundle = revenue_bundle(model, REVENUE_BASIS)
     incremental = bundle["incremental"]
- 
+
     kpi_strip([
         {"label": "Incremental revenue", "value": fmt_cr_signed(incremental["total"], 1),
          "tone": _tone_for(incremental["total"]),
@@ -4987,23 +4649,10 @@ def render_revenue_impact(model: ScenarioModel) -> Dict[str, Any]:
         {"label": "January revenue", "value": fmt_cr(bundle["january"]["total"], 1),
          "secondary": "booked by the January milestone"},
     ])
- 
-    left, right = st.columns([1.15, 1])
-    with left:
-        figure = revenue_waterfall(bundle)
-        if figure is not None:
-            show_figure(figure, height=340)
-        else:
-            st.bar_chart(
-                pd.DataFrame(
-                    {"Incremental revenue": [_z(incremental["by_asset"][a]) for a in ASSETS]},
-                    index=ASSETS,
-                )
-            )
-    with right:
-        frame, formats = build_revenue_impact(model, REVENUE_BASIS)
-        render_glass_table(frame, formats, total_rows=("Total",))
- 
+
+    frame, formats = build_revenue_impact(model, REVENUE_BASIS)
+    render_glass_table(frame, formats, total_rows=("Total",))
+
     parts = " + ".join(
         f"{asset} {fmt_cr_signed(incremental['by_asset'][asset], 1)}" for asset in ASSETS
     )
@@ -5016,30 +4665,7 @@ def render_revenue_impact(model: ScenarioModel) -> Dict[str, Any]:
         f"<b>Scenario revenue mix:</b> {contribution}."
     )
     return bundle
- 
- 
-def all_scenarios_figure(frame: pd.DataFrame, selected_scenario_id: int) -> Any:
-    """Every scenario's March outcome on the same scope."""
-    if not PLOTLY_AVAILABLE or frame.empty or "Scenario March %" not in frame.columns:
-        return None
-    labels = frame["Scenario"].tolist()
-    values = [(_num(v) or 0.0) * 100.0 for v in frame["Scenario March %"]]
-    selected_label = f"{selected_scenario_id:02d} · {SCENARIOS[selected_scenario_id]['short']}"
-    colors = [GOLD if label == selected_label else "rgba(255,255,255,0.22)" for label in labels]
-    fig = go.Figure(go.Bar(
-        x=labels, y=values,
-        marker=dict(color=colors, line=dict(width=0)),
-        hovertemplate="%{x}<br>March %{y:.1f}% of FY target<extra></extra>",
-    ))
-    fig.add_hline(
-        y=100, line=dict(color="rgba(255,255,255,0.35)", width=1, dash="dot"),
-        annotation_text="FY target", annotation_position="top left",
-        annotation_font=dict(color=INK_MUTED, size=10),
-    )
-    fig.update_layout(title="March achievement by scenario", yaxis_title="% of FY target")
-    return fig
- 
- 
+
 def render_all_scenarios(
     grid: pd.DataFrame,
     scenario_id: int,
@@ -5047,15 +4673,12 @@ def render_all_scenarios(
     basis: str,
     asset: str,
 ) -> None:
-    """Every scenario evaluated on the selected scope, not just the chosen one."""
+    """Every scenario evaluated on the selected scope, table only."""
     with st.expander("Compare all nine scenarios on this scope", expanded=False):
         frame, formats = build_all_scenario_matrix(grid, scenario_id, params, basis, asset)
         if frame.empty:
             glass_note("No scenario output is available for this scope.")
             return
-        figure = all_scenarios_figure(frame, scenario_id)
-        if figure is not None:
-            show_figure(figure, height=320)
         render_glass_table(
             frame, formats,
             total_rows=(f"{scenario_id:02d} · {SCENARIOS[scenario_id]['short']}",),
@@ -5064,8 +4687,7 @@ def render_all_scenarios(
             "Scenarios 1–9 are calculated on the same scope and sales basis. The selected "
             "scenario uses the live assumptions above; the others use their configured defaults."
         )
- 
- 
+
 # =============================================================================
 # 19. SCENARIO-SPECIFIC DRIVERS
 # =============================================================================
@@ -5114,33 +4736,8 @@ def render_segment_section(model: ScenarioModel, basis: str, counts: Dict[str, i
     )
  
  
-def channel_matrix_figure(frame: pd.DataFrame) -> Any:
-    """January and March achievement by channel, against the 100% line."""
-    if not PLOTLY_AVAILABLE or frame.empty:
-        return None
-    labels = frame["Channel"].tolist()
-    fig = go.Figure()
-    fig.add_trace(go.Bar(
-        x=labels, y=[(_num(v) or 0.0) * 100 for v in frame["Jan Achievement"]],
-        name="January 2027", marker=dict(color="rgba(255,255,255,0.26)", line=dict(width=0)),
-        hovertemplate="%{x} · January %{y:.1f}%<extra></extra>",
-    ))
-    fig.add_trace(go.Bar(
-        x=labels, y=[(_num(v) or 0.0) * 100 for v in frame["Mar Achievement"]],
-        name="March 2027", marker=dict(color=GOLD, line=dict(width=0)),
-        hovertemplate="%{x} · March %{y:.1f}%<extra></extra>",
-    ))
-    fig.add_hline(
-        y=100, line=dict(color="rgba(255,255,255,0.35)", width=1, dash="dot"),
-        annotation_text="FY target", annotation_position="top left",
-        annotation_font=dict(color=INK_MUTED, size=10),
-    )
-    fig.update_layout(barmode="group", bargap=0.3, title="Channel achievement", yaxis_title="% of FY target")
-    return fig
- 
- 
 def render_channel_simulator(model: ScenarioModel, basis: str) -> None:
-    """Scenario 8 · executive channel simulator."""
+    """Scenario 8 · executive channel simulator, table only."""
     frame, formats = build_channel_scenario_analysis(model, basis)
     if frame.empty:
         glass_callout(
@@ -5149,11 +4746,11 @@ def render_channel_simulator(model: ScenarioModel, basis: str) -> None:
             tone="warn",
         )
         return
- 
+
     jan_gap = _z(frame["Jan Gap / Headroom"].sum())
     mar_gap = _z(frame["Mar Gap / Headroom"].sum())
     incremental = _z(frame["March Incremental Sales"].sum())
- 
+
     kpi_strip([
         {"label": "January portfolio headroom", "value": fmt_cr_signed(jan_gap),
          "tone": _tone_for(jan_gap), "secondary": "above or below the January target"},
@@ -5164,13 +4761,9 @@ def render_channel_simulator(model: ScenarioModel, basis: str) -> None:
         {"label": "Channels in play", "value": f"{len(frame)} of {len(CHANNELS)}",
          "secondary": "mapped from workbook metadata"},
     ])
- 
-    figure = channel_matrix_figure(frame)
-    if figure is not None:
-        show_figure(figure, height=340)
- 
+
     render_glass_table(frame, formats)
- 
+
     on_track = (frame["Jan Gap / Headroom"] >= 0).all() and (frame["Mar Gap / Headroom"] >= 0).all()
     if on_track:
         glass_callout(
@@ -5187,29 +4780,9 @@ def render_channel_simulator(model: ScenarioModel, basis: str) -> None:
             + ". Raise monthly growth or reset the target for those channels.",
             tone="warn",
         )
- 
- 
-def optimiser_figure(frame: pd.DataFrame) -> Any:
-    """Minimum month-on-month growth each channel must deliver."""
-    if not PLOTLY_AVAILABLE or frame.empty:
-        return None
-    ordered = frame.sort_values("MoM Growth", ascending=True)
-    fig = go.Figure(go.Bar(
-        x=[(_num(v) or 0.0) * 100 for v in ordered["MoM Growth"]],
-        y=ordered["Channel"].tolist(),
-        orientation="h",
-        marker=dict(color=GOLD, line=dict(width=0)),
-        hovertemplate="%{y} · minimum %{x:.1f}% per month<extra></extra>",
-    ))
-    fig.update_layout(
-        title="Minimum monthly growth required by channel",
-        xaxis_title="Month-on-month growth %",
-    )
-    return fig
- 
- 
+
 def render_channel_optimizer(model: ScenarioModel, basis: str) -> None:
-    """Scenario 9 · find the minimum growth required."""
+    """Scenario 9 · minimum growth required, table only."""
     ambition = float(model.params.get("optimizer_target", 1.20))
     frame, formats = build_channel_scenario_analysis(model, basis)
     if frame.empty:
@@ -5219,11 +4792,11 @@ def render_channel_optimizer(model: ScenarioModel, basis: str) -> None:
             tone="warn",
         )
         return
- 
+
     solved = [(_num(v) or 0.0) for v in frame["MoM Growth"]]
     hardest = frame.iloc[int(np.argmax(solved))] if solved else None
     portfolio = model.cell(basis)
- 
+
     kpi_strip([
         {"label": "March ambition", "value": fmt_pct(ambition), "tone": "gold",
          "secondary": "portfolio target set by management"},
@@ -5238,72 +4811,77 @@ def render_channel_optimizer(model: ScenarioModel, basis: str) -> None:
          "value": fmt_pct(model.params.get("leakage", S8_DEFAULT_LEAKAGE)),
          "secondary": "applied after January"},
     ])
- 
-    figure = optimiser_figure(frame)
-    if figure is not None:
-        show_figure(figure, height=340)
- 
+
     display = frame.copy()
     display["Portfolio ambition"] = ambition
     display_formats = dict(formats)
     display_formats["Portfolio ambition"] = "pct"
     render_glass_table(display, display_formats)
- 
+
     glass_callout(
         "The optimiser solves the minimum compounding trajectory each channel must run from July "
         f"to hold the January milestone and still land the {fmt_pct(ambition)} March ambition after "
         f"{fmt_pct(model.params.get('leakage', S8_DEFAULT_LEAKAGE))} leakage. Channels already at "
         "or above the requirement solve to zero additional growth."
     )
- 
- 
+
 def render_scenario_drivers(
     model: ScenarioModel,
     basis: str,
     segment_counts: Dict[str, int],
 ) -> None:
-    """09 · Channel, asset and segment drivers behind the selected scenario."""
+    """09 · Scenario data segregated only into Channel and Asset Class views."""
     section_header(
         "09",
         "Scenario drivers",
         "Where the required delivery actually sits",
     )
- 
+
     if model.scenario_id == 6:
         render_segment_section(model, basis, segment_counts)
     elif model.scenario_id == 8:
         render_channel_simulator(model, basis)
     elif model.scenario_id == 9:
         render_channel_optimizer(model, basis)
- 
-    tabs = st.tabs(["Retail / DHNI / VRM", "Asset class"])
+
+    tabs = st.tabs(["Channel", "Asset class"])
     with tabs[0]:
-        verticals = model.available_verticals()
-        if not verticals:
-            glass_note("No Retail / DHNI / VRM data is available for this scope.")
+        frame, formats = build_vertical_summary(model)
+        if frame.empty:
+            glass_note("No channel data is available for this scope.")
         else:
-            reset_stale_selection("vertical_drilldown", verticals)
-            selected = st.radio(
-                "Channel drill-down", verticals, index=0, horizontal=True,
-                key="vertical_drilldown", label_visibility="collapsed",
-            )
-            frame, formats = build_vertical_summary(model)
-            filtered = frame.loc[frame["Vertical"] == selected].drop(columns=["Vertical"])
-            render_glass_table(filtered, formats)
+            render_glass_table(frame, formats)
+
     with tabs[1]:
-        selected_asset = st.radio(
-            "Asset drill-down", ASSETS, index=0, horizontal=True,
-            key="asset_drilldown", label_visibility="collapsed",
-        )
+        rows: List[Dict[str, Any]] = []
         for sales in ("NS", "GS"):
-            st.markdown(
-                f"<div class='metric-label'>{SALES_LABEL[sales]}</div>", unsafe_allow_html=True
-            )
-            frame, formats = build_asset_breakdown(model, sales)
-            filtered = frame.loc[frame["Asset"] == selected_asset].drop(columns=["Asset"])
-            render_glass_table(filtered, formats)
- 
- 
+            for asset_name in ASSETS:
+                cell = model.cell(sales, asset=asset_name)
+                rows.append({
+                    "Sales": SALES_LABEL[sales],
+                    "Asset Class": asset_name,
+                    "FY Target": cell.get("fy_target"),
+                    "YTD Achievement": cell.get("ytd_ach"),
+                    "Target Achieved %": cell.get("ytd_ach_pct"),
+                    "Current Run Rate": cell.get("current_rr"),
+                    "Scenario Run Rate": cell.get("scen_rr"),
+                    "Run Rate Change %": cell.get("rr_change_pct"),
+                    "Current March Projection %": cell.get("current_march_pct"),
+                    "Scenario March Projection %": cell.get("march_pct"),
+                    "Incremental Sales": cell.get("incremental_sales"),
+                })
+        asset_frame = pd.DataFrame(rows)
+        render_glass_table(
+            asset_frame,
+            {
+                "Sales": "txt", "Asset Class": "txt", "FY Target": "cr",
+                "YTD Achievement": "cr", "Target Achieved %": "pct",
+                "Current Run Rate": "cr", "Scenario Run Rate": "cr",
+                "Run Rate Change %": "pct_signed", "Current March Projection %": "pct",
+                "Scenario March Projection %": "pct", "Incremental Sales": "cr_signed",
+            },
+        )
+
 def render_detail_tables(model: ScenarioModel) -> None:
     """10 · Detailed analytical tables, supporting the cards above."""
     section_header("10", "Detailed analytical tables", "The full numbers behind every card")
@@ -5519,8 +5097,8 @@ def render_upload_screen() -> None:
             "<span class='inline-pill'>RM Retail Sales</span>"
             "<span class='inline-pill'>RM DHNI</span>"
             "<span class='inline-pill'>VRM</span><br><br>"
-            "FINAL supplies AUM, Gross Sales and Net Sales targets. The three RM sheets supply "
-            "employee-level targets and achievement for Equity, Debt and Liquid."
+            "FINAL supplies Gross Sales and Net Sales targets. The three RM sheets supply "
+            "employee-level targets and achievement used for the Asset Class and Channel views."
             "</div></div>",
             unsafe_allow_html=True,
         )
@@ -5605,25 +5183,6 @@ def render_command_center(records: pd.DataFrame, payload: bytes) -> None:
          "secondary": "FY target less projected March"},
     ])
  
-    figure = pace_figure(scoped_grid, basis)
-    if figure is not None:
-        show_figure(figure, height=300)
-    else:
-        st.bar_chart(
-            pd.DataFrame(
-                {
-                    "Current run rate": [
-                        _z(summarize_current(scoped_grid, sales=basis, asset=a).get("current_rr"))
-                        for a in ASSETS
-                    ],
-                    "Required run rate": [
-                        _z(summarize_current(scoped_grid, sales=basis, asset=a).get("fy_target")) / 12.0
-                        for a in ASSETS
-                    ],
-                },
-                index=ASSETS,
-            )
-        )
     glass_note(
         "The current run rate is completed Apr–Jun achievement divided by three. The required "
         "run rate is the FY target spread evenly across twelve months."
@@ -5740,38 +5299,6 @@ def render_retail_rm_filters(records: pd.DataFrame) -> Tuple[pd.DataFrame, Dict[
     return filtered_records, selections
  
  
-def band_figure(contribution: pd.DataFrame) -> Any:
-    """RM count by achievement band, with each band's contribution to target."""
-    if not PLOTLY_AVAILABLE or contribution.empty:
-        return None
-    labels = contribution["Achievement Category"].tolist()
-    counts = [int(_z(v)) for v in contribution["RM Count"]]
-    share = [(_num(v) or 0.0) * 100 for v in contribution["Contribution to Overall Target %"]]
-    colors = [GOLD if label in ("100% and above", "90% - 100%") else "rgba(255,255,255,0.24)"
-              for label in labels]
-    fig = go.Figure()
-    fig.add_trace(go.Bar(
-        x=labels, y=counts, name="RMs",
-        marker=dict(color=colors, line=dict(width=0)),
-        hovertemplate="%{x}<br>%{y} RMs<extra></extra>",
-    ))
-    fig.add_trace(go.Scatter(
-        x=labels, y=share, name="Contribution to target %",
-        yaxis="y2", mode="lines+markers",
-        line=dict(color=GREEN, width=2), marker=dict(size=6, color=GREEN),
-        hovertemplate="%{x}<br>%{y:.1f}% of the FY target<extra></extra>",
-    ))
-    fig.update_layout(
-        title="RM achievement bands and their projected contribution",
-        yaxis=dict(title="RMs"),
-        yaxis2=dict(
-            title="Contribution %", overlaying="y", side="right",
-            showgrid=False, tickfont=dict(color=INK_SOFT, size=11),
-        ),
-    )
-    return fig
- 
- 
 def _star_card(rank: int, row: pd.Series) -> str:
     return (
         "<div class='glass-card stage-card jan'>"
@@ -5875,12 +5402,6 @@ def render_rm_sales_segmentation(
         for band in ACHIEVEMENT_BAND_ORDER
     ])
  
-    figure = band_figure(contribution)
-    if figure is not None:
-        show_figure(figure, height=340)
-    else:
-        st.bar_chart(contribution.set_index("Achievement Category")[["RM Count"]])
- 
     section_header("03", "Run-rate contribution to target", "If each band holds its current pace")
     glass_note(
         "Each band's RMs are annualised at their current run rate and divided by the FY27 target "
@@ -5920,7 +5441,6 @@ def render_rm_sales_segmentation(
                 "Achievement Category", "FY Target", "YTD Target", "YTD Achievement",
                 "YTD Achievement %", "Current Run Rate", "Estimated FY @ Current RR",
                 "Projected FY Achievement %", "Contribution to Overall Target %",
-                "Equity YTD %", "Debt YTD %", "Liquid YTD %",
             ] if c in rows.columns
         ]
         render_glass_table(
@@ -5931,8 +5451,7 @@ def render_rm_sales_segmentation(
                 "FY Target": "cr", "YTD Target": "cr", "YTD Achievement": "cr",
                 "YTD Achievement %": "pct", "Current Run Rate": "cr",
                 "Estimated FY @ Current RR": "cr", "Projected FY Achievement %": "pct",
-                "Contribution to Overall Target %": "pct", "Equity YTD %": "pct",
-                "Debt YTD %": "pct", "Liquid YTD %": "pct",
+                "Contribution to Overall Target %": "pct",
             },
         )
  
