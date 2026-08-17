@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-# PATCH VERSION: v6 editable-scenarios + revenue-comparison + larger-scenario-amounts
+# PATCH VERSION: v7 dynamic-scenario-copy + larger-amounts + simplified-revenue
  
 import inspect
 import io
@@ -2246,32 +2246,24 @@ def build_comparison(model: ScenarioModel) -> Tuple[pd.DataFrame, Dict[str, str]
  
  
 def build_revenue_impact(model: ScenarioModel, basis: str) -> Tuple[pd.DataFrame, Dict[str, str]]:
-    """Revenue by asset class - never a blended rate."""
+    """Current and expected revenue by asset class - never a blended rate."""
     bundle = revenue_bundle(model, basis)
     rows = []
     for asset in ASSETS:
         rows.append({
             "Asset Class": asset,
-            "Scenario Sales": bundle["scenario"]["sales_by_asset"][asset],
-            "Revenue Rate": f"{REVENUE_BPS[asset]:.0f} bps",
-            "Scenario Revenue": bundle["scenario"]["by_asset"][asset],
-            "Baseline Revenue": bundle["baseline"]["by_asset"][asset],
-            "Incremental Revenue": bundle["incremental"]["by_asset"][asset],
-            "Revenue Contribution %": bundle["incremental"]["contribution"][asset],
+            "Current Revenue": bundle["baseline"]["by_asset"][asset],
+            "Expected Revenue": bundle["scenario"]["by_asset"][asset],
         })
     rows.append({
         "Asset Class": "Total",
-        "Scenario Sales": sum(_z(v) for v in bundle["scenario"]["sales_by_asset"].values()),
-        "Revenue Rate": "\u2014",
-        "Scenario Revenue": bundle["scenario"]["total"],
-        "Baseline Revenue": bundle["baseline"]["total"],
-        "Incremental Revenue": bundle["incremental"]["total"],
-        "Revenue Contribution %": 1.0 if bundle["scenario"]["total"] else None,
+        "Current Revenue": bundle["baseline"]["total"],
+        "Expected Revenue": bundle["scenario"]["total"],
     })
     formats = {
-        "Asset Class": "txt", "Scenario Sales": "cr", "Revenue Rate": "txt",
-        "Scenario Revenue": "cr1", "Baseline Revenue": "cr1",
-        "Incremental Revenue": "cr1_signed", "Revenue Contribution %": "pct",
+        "Asset Class": "txt",
+        "Current Revenue": "cr1",
+        "Expected Revenue": "cr1",
     }
     return pd.DataFrame(rows), formats
  
@@ -2661,9 +2653,10 @@ def build_all_scenario_matrix(
         try:
             model = ScenarioModel(sid, filtered_grid, params)
             cell = model.cell(sales_key, asset=None if asset == "All" else asset)
+            live_strategy = _active_scenario_copy(model)["name"] if sid == selected_scenario_id else SCENARIOS[sid]["name"]
             rows.append({
                 "Scenario": f"{sid:02d} · {SCENARIOS[sid]['short']}",
-                "Strategy": SCENARIOS[sid]["name"],
+                "Strategy": live_strategy,
                 "FY Target": cell.get("fy_target"),
                 "Current YTD": cell.get("ytd_ach"),
                 "Current March Projection": cell.get("current_march"),
@@ -3676,22 +3669,37 @@ div[role="radiogroup"] > label div[data-testid="stMarkdownContainer"] p {
 
 /* ---------- scenario numeric emphasis ---------- */
 .scenario-kpi-grid .metric-value {
-    font-size: 1.82rem;
-    line-height: 1.05;
-    font-weight: 700;
+    font-size: 2.20rem;
+    line-height: 1.03;
+    font-weight: 750;
+    letter-spacing: -0.025em;
+}
+.trio-grid .stage-card .metric-hero {
+    font-size: 2.35rem;
+    line-height: 1.02;
 }
 .trio-grid .stage-card .kpi-row .v {
-    font-size: 1.02rem;
-    font-weight: 700;
+    font-size: 1.24rem;
+    line-height: 1.15;
+    font-weight: 750;
 }
 .scenario-table .glass-table td.amount {
-    font-size: 1.01rem;
-    font-weight: 700;
-    letter-spacing: -0.01em;
+    font-size: 1.15rem;
+    line-height: 1.2;
+    font-weight: 750;
+    letter-spacing: -0.015em;
+}
+.revenue-table .glass-table tbody tr.total td {
+    font-size: 1.12rem;
+    font-weight: 800;
+}
+.revenue-table .glass-table tbody tr.total td.amount {
+    font-size: 1.34rem;
+    line-height: 1.15;
 }
 .revenue-compare-grid {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(150px, .42fr) minmax(0, 1fr);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 14px;
     align-items: stretch;
     margin: 4px 0 14px 0;
@@ -3701,7 +3709,7 @@ div[role="radiogroup"] > label div[data-testid="stMarkdownContainer"] p {
 .revenue-current-card .revenue-compare-amount { color: #8EC2FF; }
 .revenue-expected-card .revenue-compare-amount { color: #79E0AA; }
 .revenue-compare-amount {
-    font-size: 2.35rem;
+    font-size: 2.70rem;
     font-weight: 750;
     letter-spacing: -0.035em;
     line-height: 1.05;
@@ -4910,21 +4918,108 @@ def _active_scenario_assumption_text(model: ScenarioModel) -> str:
     return ""
 
 
+def _active_scenario_copy(model: ScenarioModel) -> Dict[str, str]:
+    """Return scenario title/thesis/explanation using the live editable percentages."""
+    p = model.params
+    sid = model.scenario_id
+
+    if sid == 1:
+        uplift = fmt_pct(p.get("runrate_uplift", S1_RUNRATE_UPLIFT))
+        return {
+            "name": f"+{uplift} Run-Rate Push",
+            "thesis": f"Lift the current pace by {uplift} and carry that pace through the remaining nine months.",
+            "explanation": f"Increase the current Apr–Jun monthly run rate by {uplift} from July onward and measure the resulting March achievement.",
+        }
+    if sid == 2:
+        overall = fmt_pct(p.get("overall_target", S2_OVERALL_TARGET))
+        equity = fmt_pct(p.get("equity_target", S2_EQUITY_TARGET))
+        return {
+            "name": f"{overall} Overall by January + {equity} Equity",
+            "thesis": f"Reach {equity} of the Equity FY target while carrying {overall} of the overall book by January.",
+            "explanation": f"Reach {equity} of the Equity FY target and {overall} of the overall FY target by January. The residual requirement is allocated to Debt and Liquid in FY-target proportion.",
+        }
+    if sid == 3:
+        target = fmt_pct(p.get("target_pct", S3_TARGET))
+        dip = fmt_pct(p.get("dip", S3_DEFAULT_DIP))
+        return {
+            "name": f"{target} by January, then {dip} Feb–Mar dip",
+            "thesis": f"Reach {target} of the FY target by January, then absorb a {dip} closing run-rate dip.",
+            "explanation": f"Reach {target} of the FY target by January, followed by a {dip} February–March run-rate decline.",
+        }
+    if sid == 4:
+        target = fmt_pct(p.get("target_pct", S4_TARGET))
+        return {
+            "name": f"{target} by March",
+            "thesis": f"Hold the required pace for the remaining nine months and close the year at {target}.",
+            "explanation": f"Determine the monthly run rate required to finish March at {target} of the FY target.",
+        }
+    if sid == 5:
+        overall = fmt_pct(p.get("overall_target", S5_OVERALL_TARGET))
+        equity = fmt_pct(p.get("equity_target", S5_EQUITY_TARGET))
+        return {
+            "name": f"{equity} Equity + {overall} Overall by March",
+            "thesis": f"Push Equity to {equity} while the overall portfolio lands at {overall} by March.",
+            "explanation": f"Reach {equity} of the Equity FY target and {overall} of the overall FY target by March, with Debt and Liquid balancing the remaining requirement.",
+        }
+    if sid == 6:
+        targets = dict(p.get("segment_targets", S6_SEGMENT_TARGETS))
+        digital = fmt_pct(targets.get("Digital", S6_SEGMENT_TARGETS["Digital"]))
+        b30 = fmt_pct(targets.get("Retail B30", S6_SEGMENT_TARGETS["Retail B30"]))
+        others = fmt_pct(targets.get("Others", S6_SEGMENT_TARGETS["Others"]))
+        return {
+            "name": f"Digital {digital} + Retail B30 {b30} + Others {others}",
+            "thesis": f"Set differentiated March outcomes: Digital {digital}, Retail B30 {b30}, Others {others}.",
+            "explanation": f"Model differentiated performance where Digital achieves {digital}, Retail B30 achieves {b30}, and Others achieve {others} of their respective FY targets.",
+        }
+    if sid == 7:
+        jan = fmt_pct(p.get("jan_target", S7_DEFAULT_JAN_TARGET))
+        mar = fmt_pct(p.get("mar_target", S7_DEFAULT_MAR_TARGET))
+        leakage = fmt_pct(p.get("leakage", S7_DEFAULT_LEAKAGE))
+        return {
+            "name": f"Momentum Build-Up · Jan {jan} → Mar {mar}",
+            "thesis": f"Build a January buffer to reach {jan}, absorb {leakage} leakage, and protect a {mar} March outcome.",
+            "explanation": f"Build progressive month-on-month momentum from July 2026 to reach {jan} by January 2027, absorb {leakage} February–March run-rate leakage, and finish March at the {mar} ambition.",
+        }
+    if sid == 8:
+        leakage = fmt_pct(p.get("leakage", S8_DEFAULT_LEAKAGE))
+        return {
+            "name": "Channel Growth & Target Simulator",
+            "thesis": f"Set channel-by-channel growth and target percentages, with {leakage} February–March leakage.",
+            "explanation": f"Independently adjust monthly growth, January target achievement and March target achievement for all nine channels. The current leakage assumption is {leakage}.",
+        }
+    if sid == 9:
+        jan = next(iter(p.get("channel_jan_target", {}).values()), 1.0)
+        jan_text = fmt_pct(jan)
+        mar_text = fmt_pct(p.get("optimizer_target", 1.0))
+        leakage = fmt_pct(p.get("leakage", S8_DEFAULT_LEAKAGE))
+        return {
+            "name": f"Channel Mix Optimiser · Mar {mar_text}",
+            "thesis": f"Find the minimum channel growth needed for a {mar_text} March ambition while protecting a {jan_text} January milestone.",
+            "explanation": f"Optimise the channel growth trajectory to achieve {mar_text} by March, preserve the {jan_text} January milestone, and allow for {leakage} February–March leakage.",
+        }
+    return {
+        "name": model.meta.get("name", "Scenario"),
+        "thesis": model.meta.get("thesis", ""),
+        "explanation": model.meta.get("explanation", ""),
+    }
+
+
 def render_scenario_hero(model: ScenarioModel, basis: str, asset: str) -> Dict[str, Any]:
     """06 · Scenario hero: the thesis, then Current → January → March."""
     meta = model.meta
+    live_copy = _active_scenario_copy(model)
     section_header(
         "06",
-        f"Scenario {model.scenario_id} · {meta['name']}",
+        f"Scenario {model.scenario_id} · {live_copy['name']}",
         "The selected strategy and what it demands",
     )
  
     st.markdown(
         "<div class='scenario-hero'>"
         f"<div class='eyebrow'>Scenario {model.scenario_id:02d} · {escape(meta['short'])}</div>"
-        f"<div class='title'>{escape(meta['name'])}</div>"
-        f"<div class='thesis'>{escape(meta['thesis'])}</div>"
-        f"<div class='detail'>{escape(meta['explanation'])}</div>"
+        f"<div class='title'>{escape(live_copy['name'])}</div>"
+        f"<div class='thesis'>{escape(live_copy['thesis'])}</div>"
+        f"<div class='detail'>{escape(live_copy['explanation'])}</div>"
         f"<div class='milestone'>{escape(_active_scenario_assumption_text(model))}</div>"
         "</div>",
         unsafe_allow_html=True,
@@ -5186,7 +5281,7 @@ def render_momentum_detail(model: ScenarioModel, basis: str) -> None:
  
  
 def render_revenue_impact(model: ScenarioModel) -> Dict[str, Any]:
-    """08 · Explicit current-vs-expected revenue comparison plus asset-class detail."""
+    """08 · Current-versus-expected revenue only, with asset-class detail."""
     section_header(
         "08",
         "Current revenue vs expected revenue",
@@ -5194,7 +5289,6 @@ def render_revenue_impact(model: ScenarioModel) -> Dict[str, Any]:
     )
 
     bundle = revenue_bundle(model, REVENUE_BASIS)
-    incremental = bundle["incremental"]
     current_revenue = bundle["baseline"]["total"]
     expected_revenue = bundle["scenario"]["total"]
 
@@ -5205,11 +5299,6 @@ def render_revenue_impact(model: ScenarioModel) -> Dict[str, Any]:
         f"<div class='revenue-compare-amount'>{escape(fmt_cr(current_revenue, 1))}</div>"
         "<div class='metric-secondary'>Expected by March at the current trajectory</div>"
         "</div>"
-        "<div class='revenue-bridge-card'>"
-        f"<div class='revenue-bridge-delta'>{escape(fmt_cr_signed(incremental['total'], 1))}</div>"
-        f"<div class='metric-delta {_tone_for(incremental['total'])}'>{escape(fmt_pct_signed(incremental['uplift_pct']))}</div>"
-        "<div class='metric-secondary'>scenario uplift</div>"
-        "</div>"
         "<div class='glass-card revenue-expected-card'>"
         "<div class='metric-label'>Expected revenue</div>"
         f"<div class='revenue-compare-amount'>{escape(fmt_cr(expected_revenue, 1))}</div>"
@@ -5219,28 +5308,17 @@ def render_revenue_impact(model: ScenarioModel) -> Dict[str, Any]:
         unsafe_allow_html=True,
     )
 
-    kpi_strip([
-        {"label": "Revenue change", "value": fmt_cr_signed(incremental["total"], 1),
-         "tone": _tone_for(incremental["total"]),
-         "delta": fmt_pct_signed(incremental["uplift_pct"]),
-         "secondary": "expected minus current"},
-        {"label": "January expected revenue", "value": fmt_cr(bundle["january"]["total"], 1),
-         "secondary": "by the January milestone"},
-    ], css_class="scenario-kpi-grid")
-
     frame, formats = build_revenue_impact(model, REVENUE_BASIS)
-    render_glass_table(frame, formats, total_rows=("Total",), css_class="scenario-table")
+    render_glass_table(
+        frame,
+        formats,
+        total_rows=("Total",),
+        css_class="scenario-table revenue-table",
+    )
 
-    parts = " + ".join(
-        f"{asset} {fmt_cr_signed(incremental['by_asset'][asset], 1)}" for asset in ASSETS
-    )
-    contribution = " · ".join(
-        f"{asset} {fmt_pct(incremental['contribution'][asset])}" for asset in ASSETS
-    )
-    glass_callout(
-        f"<b>Revenue bridge:</b> baseline {fmt_cr(bundle['baseline']['total'], 1)} "
-        f"+ {parts} = scenario {fmt_cr(bundle['scenario']['total'], 1)}.<br>"
-        f"<b>Scenario revenue mix:</b> {contribution}."
+    glass_note(
+        "Revenue is calculated separately by asset class on Net Sales using the configured "
+        "Equity, Debt and Liquid revenue rates. The table shows only current and expected revenue."
     )
     return bundle
 
@@ -5610,6 +5688,38 @@ def render_channel_controls(records: pd.DataFrame) -> Dict[str, Any]:
     return mapping
  
  
+def _sidebar_pct(key: str, default_fraction: float) -> str:
+    """Format an editable percentage from session state for the scenario dropdown label."""
+    raw = st.session_state.get(key, default_fraction * 100.0)
+    try:
+        return f"{float(raw):.1f}%"
+    except (TypeError, ValueError):
+        return f"{default_fraction * 100.0:.1f}%"
+
+
+def _sidebar_scenario_label(sid: int) -> str:
+    """Scenario dropdown copy that follows the latest edited percentage assumptions."""
+    if sid == 1:
+        return f"Scenario 1 · +{_sidebar_pct('s1_uplift', S1_RUNRATE_UPLIFT)} Run-Rate Push"
+    if sid == 2:
+        return f"Scenario 2 · {_sidebar_pct('s2_overall', S2_OVERALL_TARGET)} Overall by Jan + {_sidebar_pct('s2_equity', S2_EQUITY_TARGET)} Equity"
+    if sid == 3:
+        return f"Scenario 3 · {_sidebar_pct('s3_target', S3_TARGET)} by Jan · {_sidebar_pct('s3_dip', S3_DEFAULT_DIP)} Dip"
+    if sid == 4:
+        return f"Scenario 4 · {_sidebar_pct('s4_target', S4_TARGET)} by March"
+    if sid == 5:
+        return f"Scenario 5 · {_sidebar_pct('s5_equity', S5_EQUITY_TARGET)} Equity + {_sidebar_pct('s5_overall', S5_OVERALL_TARGET)} Overall"
+    if sid == 6:
+        return f"Scenario 6 · Digital {_sidebar_pct('s6_digital', S6_SEGMENT_TARGETS['Digital'])} + B30 {_sidebar_pct('s6_retail_b30', S6_SEGMENT_TARGETS['Retail B30'])} + Others {_sidebar_pct('s6_others', S6_SEGMENT_TARGETS['Others'])}"
+    if sid == 7:
+        return f"Scenario 7 · Jan {_sidebar_pct('s7_jan', S7_DEFAULT_JAN_TARGET)} → Mar {_sidebar_pct('s7_mar', S7_DEFAULT_MAR_TARGET)} · Leakage {_sidebar_pct('s7_leak', S7_DEFAULT_LEAKAGE)}"
+    if sid == 8:
+        return "Scenario 8 · Channel Growth & Target Simulator"
+    if sid == 9:
+        return f"Scenario 9 · Jan {_sidebar_pct('s9_jan_target', 1.0)} → Mar {_sidebar_pct('s9_target', 1.20)} · Leakage {_sidebar_pct('s9_leakage', S8_DEFAULT_LEAKAGE)}"
+    return SCENARIOS[sid]["label"]
+
+
 def render_sidebar(records: pd.DataFrame) -> Tuple[str, Dict[str, Any], Dict[str, Any]]:
     """Quiet utility rail: page, data mapping, assumptions and workbook actions."""
     sidebar = st.sidebar
@@ -5626,21 +5736,18 @@ def render_sidebar(records: pd.DataFrame) -> Tuple[str, Dict[str, Any], Dict[str
     # Scenario selection has a single home: the left sidebar. This prevents
     # duplicate scenario selectors from appearing above or inside comparisons.
     sidebar.markdown("<div class='sidebar-title'>Scenario planning</div>", unsafe_allow_html=True)
-    scenario_options = [SCENARIOS[sid]["label"] for sid in SCENARIO_ORDER]
     current_scenario = int(st.session_state.get("scenario_id", 1))
     if current_scenario not in SCENARIO_ORDER:
         current_scenario = 1
-    selected_scenario_label = sidebar.selectbox(
+    selected_scenario_id = sidebar.selectbox(
         "Scenario",
-        scenario_options,
+        SCENARIO_ORDER,
         index=SCENARIO_ORDER.index(current_scenario),
-        key="sidebar_scenario_selector",
+        format_func=_sidebar_scenario_label,
+        key="sidebar_scenario_selector_v7",
         label_visibility="collapsed",
     )
-    selected_scenario_id = next(
-        sid for sid in SCENARIO_ORDER if SCENARIOS[sid]["label"] == selected_scenario_label
-    )
-    st.session_state["scenario_id"] = selected_scenario_id
+    st.session_state["scenario_id"] = int(selected_scenario_id)
  
     sidebar.markdown("<div class='sidebar-title'>Data mapping</div>", unsafe_allow_html=True)
     segment_mapping = render_segment_controls(records)
