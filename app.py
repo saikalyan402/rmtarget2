@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-# PATCH VERSION: overlap-fix-v2 + AUM-current-performance
+# PATCH VERSION: v6 editable-scenarios + revenue-comparison + larger-scenario-amounts
  
 import inspect
 import io
@@ -431,6 +431,7 @@ FORMATTERS = {
  
 # Formats whose values are read as numbers (right aligned in glass tables).
 NUMERIC_FORMATS = {"cr", "cr1", "cr_signed", "cr1_signed", "pct", "pct_signed", "pts", "num"}
+AMOUNT_FORMATS = {"cr", "cr1", "cr_signed", "cr1_signed"}
 SIGNED_FORMATS = {"cr_signed", "cr1_signed", "pct_signed", "pts"}
  
  
@@ -1407,40 +1408,47 @@ def _finalise_cell(cell: Dict[str, Any]) -> Dict[str, Any]:
     return cell
  
  
-def scenario_multipliers(grid: pd.DataFrame, scenario_id: int) -> Dict[Tuple[str, str, str], float]:
-    """
-    Derive the per-asset FY-target multiplier for the selected scenario.
- 
-    Key is (sales type, asset, segment); segment is '*' unless the scenario
-    differentiates by business segment.
-    """
+def scenario_multipliers(
+    grid: pd.DataFrame,
+    scenario_id: int,
+    params: Optional[Dict[str, Any]] = None,
+) -> Dict[Tuple[str, str, str], float]:
+    """Derive per-asset target multipliers from the editable scenario assumptions."""
+    params = params or {}
     multipliers: Dict[Tuple[str, str, str], float] = {}
  
     if scenario_id in (1, 7):
         return multipliers
  
     if scenario_id == 3:
+        target_pct = float(params.get("target_pct", S3_TARGET))
         for sales in SALES_TYPES:
             for asset in ASSETS:
-                multipliers[(sales, asset, "*")] = S3_TARGET
+                multipliers[(sales, asset, "*")] = target_pct
         return multipliers
  
     if scenario_id == 4:
+        target_pct = float(params.get("target_pct", S4_TARGET))
         for sales in SALES_TYPES:
             for asset in ASSETS:
-                multipliers[(sales, asset, "*")] = S4_TARGET
+                multipliers[(sales, asset, "*")] = target_pct
         return multipliers
  
     if scenario_id == 6:
+        segment_targets = dict(params.get("segment_targets", S6_SEGMENT_TARGETS))
         for sales in SALES_TYPES:
             for asset in ASSETS:
                 for segment in SEGMENT_ORDER:
-                    multipliers[(sales, asset, segment)] = S6_SEGMENT_TARGETS.get(segment, 1.0)
+                    multipliers[(sales, asset, segment)] = float(
+                        segment_targets.get(segment, S6_SEGMENT_TARGETS.get(segment, 1.0))
+                    )
         return multipliers
  
-    # Scenarios 2 and 5 balance Debt and Liquid around a fixed Equity ambition.
-    equity_mult = S2_EQUITY_TARGET if scenario_id == 2 else S5_EQUITY_TARGET
-    overall_mult = S2_OVERALL_TARGET if scenario_id == 2 else S5_OVERALL_TARGET
+    # Scenarios 2 and 5 balance Debt and Liquid around editable Equity / Overall ambitions.
+    default_equity = S2_EQUITY_TARGET if scenario_id == 2 else S5_EQUITY_TARGET
+    default_overall = S2_OVERALL_TARGET if scenario_id == 2 else S5_OVERALL_TARGET
+    equity_mult = float(params.get("equity_target", default_equity))
+    overall_mult = float(params.get("overall_target", default_overall))
  
     for sales in SALES_TYPES:
         targets = {
@@ -1481,7 +1489,7 @@ def apply_scenario_grid(
     """Evaluate scenarios 1-6 over every cell of the base grid."""
     kind = SCENARIOS[scenario_id]["kind"]
     dip = float(params.get("dip", 0.0)) if scenario_id == 3 else 0.0
-    uplift = S1_RUNRATE_UPLIFT if scenario_id == 1 else None
+    uplift = float(params.get("runrate_uplift", S1_RUNRATE_UPLIFT)) if scenario_id == 1 else None
  
     results: List[Dict[str, Any]] = []
     for row in grid.to_dict("records"):
@@ -1524,7 +1532,7 @@ def summarize_cells(subset: pd.DataFrame) -> Dict[str, Any]:
 # --- Named scenario entry points (thin wrappers over the shared engine) -------
  
 def _scenario_frame(grid: pd.DataFrame, scenario_id: int, params: Dict[str, Any]) -> pd.DataFrame:
-    return apply_scenario_grid(grid, scenario_id, params, scenario_multipliers(grid, scenario_id))
+    return apply_scenario_grid(grid, scenario_id, params, scenario_multipliers(grid, scenario_id, params))
  
  
 def calculate_scenario_1(grid: pd.DataFrame, params: Dict[str, Any]) -> pd.DataFrame:
@@ -1865,7 +1873,7 @@ class ScenarioModel:
         self.meta = SCENARIOS[scenario_id]
         self.grid = grid
         self.params = params
-        self.multipliers = scenario_multipliers(grid, scenario_id)
+        self.multipliers = scenario_multipliers(grid, scenario_id, params)
         self._cache: Dict[Tuple, Dict[str, Any]] = {}
         if scenario_id == 7:
             self.scenario_grid = None
@@ -2597,8 +2605,8 @@ def build_scenario_guide(model: ScenarioModel, basis: str) -> pd.DataFrame:
  
  
 def scenario_default_params(scenario_id: int) -> Dict[str, Any]:
-    """Defaults exactly from the existing scenario engine configuration."""
-    return {
+    """Editable defaults for the selected scenario."""
+    params: Dict[str, Any] = {
         "dip": S3_DEFAULT_DIP,
         "jan_target": S7_DEFAULT_JAN_TARGET,
         "mar_target": S7_DEFAULT_MAR_TARGET,
@@ -2609,6 +2617,21 @@ def scenario_default_params(scenario_id: int) -> Dict[str, Any]:
         "optimizer_target": 1.20,
         "channel_mapping": {},
     }
+    if scenario_id == 1:
+        params["runrate_uplift"] = S1_RUNRATE_UPLIFT
+    elif scenario_id == 2:
+        params["overall_target"] = S2_OVERALL_TARGET
+        params["equity_target"] = S2_EQUITY_TARGET
+    elif scenario_id == 3:
+        params["target_pct"] = S3_TARGET
+    elif scenario_id == 4:
+        params["target_pct"] = S4_TARGET
+    elif scenario_id == 5:
+        params["overall_target"] = S5_OVERALL_TARGET
+        params["equity_target"] = S5_EQUITY_TARGET
+    elif scenario_id == 6:
+        params["segment_targets"] = dict(S6_SEGMENT_TARGETS)
+    return params
  
  
 def build_all_scenario_matrix(
@@ -3650,6 +3673,60 @@ div[role="radiogroup"] > label div[data-testid="stMarkdownContainer"] p {
 }
 .inline-pill.gold { color: var(--gold); border-color: rgba(216,183,106,0.35); }
  
+
+/* ---------- scenario numeric emphasis ---------- */
+.scenario-kpi-grid .metric-value {
+    font-size: 1.82rem;
+    line-height: 1.05;
+    font-weight: 700;
+}
+.trio-grid .stage-card .kpi-row .v {
+    font-size: 1.02rem;
+    font-weight: 700;
+}
+.scenario-table .glass-table td.amount {
+    font-size: 1.01rem;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+}
+.revenue-compare-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(150px, .42fr) minmax(0, 1fr);
+    gap: 14px;
+    align-items: stretch;
+    margin: 4px 0 14px 0;
+}
+.revenue-current-card { border-color: rgba(142,194,255,0.34); }
+.revenue-expected-card { border-color: rgba(121,224,170,0.38); }
+.revenue-current-card .revenue-compare-amount { color: #8EC2FF; }
+.revenue-expected-card .revenue-compare-amount { color: #79E0AA; }
+.revenue-compare-amount {
+    font-size: 2.35rem;
+    font-weight: 750;
+    letter-spacing: -0.035em;
+    line-height: 1.05;
+    margin-top: 10px;
+    font-variant-numeric: tabular-nums;
+}
+.revenue-bridge-card {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 16px 10px;
+}
+.revenue-bridge-delta {
+    font-size: 1.55rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+}
+@media (max-width: 800px) {
+    .revenue-compare-grid { grid-template-columns: 1fr; }
+    .revenue-bridge-card { padding: 4px 10px; }
+}
+
 /* ---------- scenario hero ---------- */
 .scenario-hero {
     background:
@@ -4050,7 +4127,7 @@ def kpi_tile_html(
     )
  
  
-def kpi_strip(tiles: Sequence[Dict[str, str]]) -> None:
+def kpi_strip(tiles: Sequence[Dict[str, str]], css_class: str = "") -> None:
     """Render a responsive row of glass KPI tiles from one markdown call."""
     if not tiles:
         return
@@ -4064,7 +4141,8 @@ def kpi_strip(tiles: Sequence[Dict[str, str]]) -> None:
         )
         for tile in tiles
     )
-    st.markdown(f"<div class='kpi-grid'>{cards}</div>", unsafe_allow_html=True)
+    classes = "kpi-grid" + (f" {css_class.strip()}" if css_class.strip() else "")
+    st.markdown(f"<div class='{classes}'>{cards}</div>", unsafe_allow_html=True)
  
  
 def _dataframe_kwargs() -> Dict[str, Any]:
@@ -4085,6 +4163,7 @@ def render_glass_table(
     total_rows: Sequence[str] = (),
     max_html_rows: int = 240,
     empty_message: str = "No rows for this selection.",
+    css_class: str = "",
 ) -> None:
     """Compact glass table: sticky header, right-aligned numbers, signed colour."""
     if frame is None or frame.empty:
@@ -4119,14 +4198,17 @@ def render_glass_table(
             classes = []
             if kind in NUMERIC_FORMATS:
                 classes.append("num")
+            if kind in AMOUNT_FORMATS:
+                classes.append("amount")
             if kind in SIGNED_FORMATS:
                 classes.append(_tone_for(frame.iloc[position][column]))
             css = f" class='{' '.join(classes)}'" if classes else ""
             cells.append(f"<td{css}>{escape(str(display.iloc[position][column]))}</td>")
         body_rows.append(f"<tr{row_class}>{''.join(cells)}</tr>")
  
+    wrapper_classes = "glass-table-wrap" + (f" {css_class.strip()}" if css_class.strip() else "")
     st.markdown(
-        "<div class='glass-table-wrap'><table class='glass-table'>"
+        f"<div class='{wrapper_classes}'><table class='glass-table'>"
         f"<thead><tr>{''.join(header_cells)}</tr></thead>"
         f"<tbody>{''.join(body_rows)}</tbody></table></div>",
         unsafe_allow_html=True,
@@ -4643,87 +4725,191 @@ def render_scenario_navigator() -> int:
     return scenario_id
  
  
+def _pct_input(label: str, default_fraction: float, key: str, min_value: float = 0.0, max_value: float = 300.0, step: float = 1.0) -> float:
+    """Editable percentage field; returns a fraction used by the scenario engine."""
+    value = st.number_input(
+        label,
+        min_value=float(min_value),
+        max_value=float(max_value),
+        value=float(default_fraction * 100.0),
+        step=float(step),
+        format="%.1f",
+        key=key,
+    )
+    return float(value) / 100.0
+
+
 def render_scenario_controls(scenario_id: int, base_params: Dict[str, Any]) -> Dict[str, Any]:
-    """Only the assumptions the selected scenario actually uses."""
+    """Editable percentage assumptions for every scenario."""
     params = dict(base_params)
- 
-    if scenario_id == 3:
-        with st.expander("Scenario assumptions", expanded=True):
-            params["dip"] = st.slider(
-                "February–March run-rate dip", 0, 60, int(S3_DEFAULT_DIP * 100), 5,
-                format="%d%%", key="s3_dip",
-            ) / 100.0
- 
-    elif scenario_id == 7:
-        with st.expander("Scenario assumptions", expanded=True):
-            columns = st.columns(3)
-            params["jan_target"] = columns[0].slider(
-                "January achievement target", 90, 120, int(S7_DEFAULT_JAN_TARGET * 100), 1,
-                format="%d%%", key="s7_jan",
-            ) / 100.0
-            params["mar_target"] = columns[1].slider(
-                "March achievement target", 90, 120, int(S7_DEFAULT_MAR_TARGET * 100), 1,
-                format="%d%%", key="s7_mar",
-            ) / 100.0
-            params["leakage"] = columns[2].slider(
-                "February–March leakage", 0, 30, int(S7_DEFAULT_LEAKAGE * 100), 1,
-                format="%d%%", key="s7_leak",
-            ) / 100.0
- 
-    elif scenario_id == 8:
-        with st.expander("Channel assumptions", expanded=False):
-            params["leakage"] = st.slider(
-                "February–March leakage", 0, 30, int(S8_DEFAULT_LEAKAGE * 100), 1,
-                format="%d%%", key="s8_leakage",
-            ) / 100.0
-            growth = dict(params.get("channel_growth", S8_DEFAULT_GROWTH))
-            jan_targets = dict(params.get("channel_jan_target", S8_DEFAULT_JAN_TARGET))
-            mar_targets = dict(params.get("channel_mar_target", S8_DEFAULT_MAR_TARGET))
-            for channel in CHANNELS:
-                st.markdown(
-                    f"<div class='metric-label' style='margin-top:10px'>{escape(channel)}</div>",
-                    unsafe_allow_html=True,
+
+    with st.expander("Scenario assumptions · editable", expanded=True):
+        if scenario_id == 1:
+            params["runrate_uplift"] = _pct_input(
+                "Run-rate uplift %", float(base_params.get("runrate_uplift", S1_RUNRATE_UPLIFT)),
+                "s1_uplift", 0.0, 200.0,
+            )
+
+        elif scenario_id == 2:
+            columns = st.columns(2)
+            with columns[0]:
+                params["overall_target"] = _pct_input(
+                    "Overall target by January %", float(base_params.get("overall_target", S2_OVERALL_TARGET)),
+                    "s2_overall", 0.0, 250.0,
                 )
+            with columns[1]:
+                params["equity_target"] = _pct_input(
+                    "Equity target by January %", float(base_params.get("equity_target", S2_EQUITY_TARGET)),
+                    "s2_equity", 0.0, 300.0,
+                )
+
+        elif scenario_id == 3:
+            columns = st.columns(2)
+            with columns[0]:
+                params["target_pct"] = _pct_input(
+                    "January target achievement %", float(base_params.get("target_pct", S3_TARGET)),
+                    "s3_target", 0.0, 300.0,
+                )
+            with columns[1]:
+                params["dip"] = _pct_input(
+                    "February–March run-rate dip %", float(base_params.get("dip", S3_DEFAULT_DIP)),
+                    "s3_dip", 0.0, 100.0,
+                )
+
+        elif scenario_id == 4:
+            params["target_pct"] = _pct_input(
+                "March target achievement %", float(base_params.get("target_pct", S4_TARGET)),
+                "s4_target", 0.0, 300.0,
+            )
+
+        elif scenario_id == 5:
+            columns = st.columns(2)
+            with columns[0]:
+                params["overall_target"] = _pct_input(
+                    "Overall March target %", float(base_params.get("overall_target", S5_OVERALL_TARGET)),
+                    "s5_overall", 0.0, 300.0,
+                )
+            with columns[1]:
+                params["equity_target"] = _pct_input(
+                    "Equity March target %", float(base_params.get("equity_target", S5_EQUITY_TARGET)),
+                    "s5_equity", 0.0, 350.0,
+                )
+
+        elif scenario_id == 6:
+            defaults = dict(base_params.get("segment_targets", S6_SEGMENT_TARGETS))
+            columns = st.columns(3)
+            edited: Dict[str, float] = {}
+            for idx, segment in enumerate(SEGMENT_ORDER):
+                with columns[idx]:
+                    edited[segment] = _pct_input(
+                        f"{segment} March target %",
+                        float(defaults.get(segment, S6_SEGMENT_TARGETS.get(segment, 1.0))),
+                        f"s6_{segment.lower().replace(' ', '_')}", 0.0, 400.0,
+                    )
+            params["segment_targets"] = edited
+
+        elif scenario_id == 7:
+            columns = st.columns(3)
+            with columns[0]:
+                params["jan_target"] = _pct_input(
+                    "January achievement target %", float(base_params.get("jan_target", S7_DEFAULT_JAN_TARGET)),
+                    "s7_jan", 0.0, 300.0,
+                )
+            with columns[1]:
+                params["mar_target"] = _pct_input(
+                    "March achievement target %", float(base_params.get("mar_target", S7_DEFAULT_MAR_TARGET)),
+                    "s7_mar", 0.0, 300.0,
+                )
+            with columns[2]:
+                params["leakage"] = _pct_input(
+                    "February–March leakage %", float(base_params.get("leakage", S7_DEFAULT_LEAKAGE)),
+                    "s7_leak", 0.0, 100.0,
+                )
+
+        elif scenario_id == 8:
+            params["leakage"] = _pct_input(
+                "February–March leakage %", float(base_params.get("leakage", S8_DEFAULT_LEAKAGE)),
+                "s8_leakage", 0.0, 100.0,
+            )
+            growth = dict(base_params.get("channel_growth", S8_DEFAULT_GROWTH))
+            jan_targets = dict(base_params.get("channel_jan_target", S8_DEFAULT_JAN_TARGET))
+            mar_targets = dict(base_params.get("channel_mar_target", S8_DEFAULT_MAR_TARGET))
+            st.markdown("<div class='metric-secondary'>Monthly growth % · January target % · March target %</div>", unsafe_allow_html=True)
+            for channel in CHANNELS:
+                st.markdown(f"<div class='metric-label' style='margin-top:12px'>{escape(channel)}</div>", unsafe_allow_html=True)
                 columns = st.columns(3)
-                growth[channel] = columns[0].slider(
-                    "Monthly growth", -20, 30, int(S8_DEFAULT_GROWTH[channel] * 100), 1,
-                    format="%d%%", key=f"s8_g_{channel}", label_visibility="collapsed",
-                ) / 100.0
-                jan_targets[channel] = columns[1].slider(
-                    "January 2027", 80, 180, int(S8_DEFAULT_JAN_TARGET[channel] * 100), 1,
-                    format="%d%%", key=f"s8_j_{channel}", label_visibility="collapsed",
-                ) / 100.0
-                mar_targets[channel] = columns[2].slider(
-                    "March 2027", 80, 200, int(S8_DEFAULT_MAR_TARGET[channel] * 100), 1,
-                    format="%d%%", key=f"s8_m_{channel}", label_visibility="collapsed",
-                ) / 100.0
+                with columns[0]:
+                    growth[channel] = _pct_input(
+                        "Monthly growth %", float(growth.get(channel, S8_DEFAULT_GROWTH.get(channel, 0.05))),
+                        f"s8_g_{channel}", -50.0, 200.0,
+                    )
+                with columns[1]:
+                    jan_targets[channel] = _pct_input(
+                        "January target %", float(jan_targets.get(channel, S8_DEFAULT_JAN_TARGET.get(channel, 1.0))),
+                        f"s8_j_{channel}", 0.0, 400.0,
+                    )
+                with columns[2]:
+                    mar_targets[channel] = _pct_input(
+                        "March target %", float(mar_targets.get(channel, S8_DEFAULT_MAR_TARGET.get(channel, 1.0))),
+                        f"s8_m_{channel}", 0.0, 400.0,
+                    )
             params["channel_growth"] = growth
             params["channel_jan_target"] = jan_targets
             params["channel_mar_target"] = mar_targets
-            glass_note(
-                "Each row sets monthly growth, the January 2027 target and the "
-                "March 2027 target for one channel."
-            )
- 
-    elif scenario_id == 9:
-        with st.expander("Optimiser assumptions", expanded=True):
-            columns = st.columns(2)
-            ambition = columns[0].slider(
-                "Portfolio March ambition", 100, 180, 120, 1, format="%d%%", key="s9_target",
-            ) / 100.0
+
+        elif scenario_id == 9:
+            columns = st.columns(3)
+            with columns[0]:
+                jan_target = _pct_input("Portfolio January milestone %", 1.00, "s9_jan_target", 0.0, 300.0)
+            with columns[1]:
+                ambition = _pct_input(
+                    "Portfolio March ambition %", float(base_params.get("optimizer_target", 1.20)),
+                    "s9_target", 0.0, 400.0,
+                )
+            with columns[2]:
+                params["leakage"] = _pct_input(
+                    "February–March leakage %", float(base_params.get("leakage", S8_DEFAULT_LEAKAGE)),
+                    "s9_leakage", 0.0, 100.0,
+                )
             params["optimizer_target"] = ambition
-            params["leakage"] = columns[1].slider(
-                "February–March leakage", 0, 30, int(S8_DEFAULT_LEAKAGE * 100), 1,
-                format="%d%%", key="s9_leakage",
-            ) / 100.0
-            # The optimiser solves every channel against the selected ambition,
-            # holding the January milestone at 100% of the FY target.
             params["channel_mar_target"] = {c: ambition for c in CHANNELS}
-            params["channel_jan_target"] = dict(S8_DEFAULT_JAN_TARGET)
- 
+            params["channel_jan_target"] = {c: jan_target for c in CHANNELS}
+
+        glass_note(
+            "All percentages in the selected scenario are editable. Changing a value recalculates "
+            "required run rates, expected sales and revenue immediately."
+        )
+
     return params
- 
- 
+
+
+def _active_scenario_assumption_text(model: ScenarioModel) -> str:
+    """Dynamic assumption summary so edited percentages are visible beside the scenario."""
+    p = model.params
+    sid = model.scenario_id
+    if sid == 1:
+        return f"Run-rate uplift: {fmt_pct(p.get('runrate_uplift', S1_RUNRATE_UPLIFT))}"
+    if sid == 2:
+        return f"January overall: {fmt_pct(p.get('overall_target', S2_OVERALL_TARGET))} · January Equity: {fmt_pct(p.get('equity_target', S2_EQUITY_TARGET))}"
+    if sid == 3:
+        return f"January target: {fmt_pct(p.get('target_pct', S3_TARGET))} · Feb–Mar dip: {fmt_pct(p.get('dip', S3_DEFAULT_DIP))}"
+    if sid == 4:
+        return f"March target: {fmt_pct(p.get('target_pct', S4_TARGET))}"
+    if sid == 5:
+        return f"March overall: {fmt_pct(p.get('overall_target', S5_OVERALL_TARGET))} · March Equity: {fmt_pct(p.get('equity_target', S5_EQUITY_TARGET))}"
+    if sid == 6:
+        targets = dict(p.get('segment_targets', S6_SEGMENT_TARGETS))
+        return " · ".join(f"{s}: {fmt_pct(targets.get(s))}" for s in SEGMENT_ORDER)
+    if sid == 7:
+        return f"January: {fmt_pct(p.get('jan_target'))} · March: {fmt_pct(p.get('mar_target'))} · Leakage: {fmt_pct(p.get('leakage'))}"
+    if sid == 8:
+        return f"Channel assumptions editable · Leakage: {fmt_pct(p.get('leakage'))}"
+    if sid == 9:
+        jan = next(iter(p.get('channel_jan_target', {}).values()), None)
+        return f"January milestone: {fmt_pct(jan)} · March ambition: {fmt_pct(p.get('optimizer_target'))} · Leakage: {fmt_pct(p.get('leakage'))}"
+    return ""
+
+
 def render_scenario_hero(model: ScenarioModel, basis: str, asset: str) -> Dict[str, Any]:
     """06 · Scenario hero: the thesis, then Current → January → March."""
     meta = model.meta
@@ -4739,7 +4925,7 @@ def render_scenario_hero(model: ScenarioModel, basis: str, asset: str) -> Dict[s
         f"<div class='title'>{escape(meta['name'])}</div>"
         f"<div class='thesis'>{escape(meta['thesis'])}</div>"
         f"<div class='detail'>{escape(meta['explanation'])}</div>"
-        f"<div class='milestone'>{escape(meta['milestone'])}</div>"
+        f"<div class='milestone'>{escape(_active_scenario_assumption_text(model))}</div>"
         "</div>",
         unsafe_allow_html=True,
     )
@@ -4828,16 +5014,16 @@ def render_scenario_comparison(
         {"label": "Revenue impact", "value": fmt_cr_signed(revenue_total, 1),
          "tone": _tone_for(revenue_total),
          "secondary": f"on {SALES_LABEL[REVENUE_BASIS]}, asset-class rates"},
-    ])
+    ], css_class="scenario-kpi-grid")
  
     gs_frame, gs_formats = build_final_scenario_comparison(final_metrics, model, "GS")
     ns_frame, ns_formats = build_final_scenario_comparison(final_metrics, model, "NS")
  
     tabs = st.tabs(["Net Sales · current vs scenario", "Gross Sales · current vs scenario"])
     with tabs[0]:
-        render_glass_table(ns_frame, ns_formats, total_rows=("Overall",))
+        render_glass_table(ns_frame, ns_formats, total_rows=("Overall",), css_class="scenario-table")
     with tabs[1]:
-        render_glass_table(gs_frame, gs_formats, total_rows=("Overall",))
+        render_glass_table(gs_frame, gs_formats, total_rows=("Overall",), css_class="scenario-table")
  
     glass_note(
         "Scenario outcomes are anchored to the FINAL FY27 targets so the comparison uses one "
@@ -4903,7 +5089,7 @@ def render_scenario_trajectory(model: ScenarioModel, basis: str, asset: str) -> 
 
     cell = trajectory_cell(model, basis, asset)
     frame, formats = build_momentum_analysis(cell)
-    render_glass_table(frame, formats)
+    render_glass_table(frame, formats, css_class="scenario-table")
 
     if model.scenario_id == 7:
         render_momentum_detail(model, basis)
@@ -4930,7 +5116,7 @@ def render_momentum_detail(model: ScenarioModel, basis: str) -> None:
         {"label": "January exit run rate", "value": fmt_cr(cell.get("scen_rr")),
          "delta": fmt_pct_signed(cell.get("rr_change_pct")),
          "tone": _tone_for(cell.get("rr_change_pct"))},
-    ])
+    ], css_class="scenario-kpi-grid")
  
     if cell.get("feasible"):
         glass_callout(
@@ -4970,24 +5156,24 @@ def render_momentum_detail(model: ScenarioModel, basis: str) -> None:
                 f"<div class='metric-label'>{SALES_LABEL[sales]}</div>", unsafe_allow_html=True
             )
             frame, formats = build_momentum_by_group(model, sales, "asset")
-            render_glass_table(frame, formats)
+            render_glass_table(frame, formats, css_class="scenario-table")
     with tabs[1]:
         for sales in SALES_TYPES:
             st.markdown(
                 f"<div class='metric-label'>{SALES_LABEL[sales]}</div>", unsafe_allow_html=True
             )
             frame, formats = build_momentum_by_group(model, sales, "vertical")
-            render_glass_table(frame, formats)
+            render_glass_table(frame, formats, css_class="scenario-table")
     with tabs[2]:
         frame, formats = build_leakage_sensitivity(model, basis)
-        render_glass_table(frame, formats)
+        render_glass_table(frame, formats, css_class="scenario-table")
         glass_note(
             "Momentum is re-solved at each leakage assumption, so the required July–January "
             "build changes with the February–March pressure."
         )
     with tabs[3]:
         frame, formats = build_monthly_revenue(model, REVENUE_BASIS)
-        render_glass_table(frame, formats)
+        render_glass_table(frame, formats, css_class="scenario-table")
         january_revenue = calculate_revenue(model.assets(REVENUE_BASIS), "jan_amount")
         march_revenue = calculate_revenue(model.assets(REVENUE_BASIS), "march_amount")
         baseline = calculate_baseline_revenue(model.assets(REVENUE_BASIS))
@@ -5000,31 +5186,50 @@ def render_momentum_detail(model: ScenarioModel, basis: str) -> None:
  
  
 def render_revenue_impact(model: ScenarioModel) -> Dict[str, Any]:
-    """08 · Revenue impact as KPI + table only; graph removed."""
+    """08 · Explicit current-vs-expected revenue comparison plus asset-class detail."""
     section_header(
         "08",
-        "Revenue impact",
-        "Equity 60 bps · Debt 20 bps · Liquid 10 bps on Net Sales",
+        "Current revenue vs expected revenue",
+        "Current trajectory compared with the selected scenario · Net Sales revenue basis",
     )
 
     bundle = revenue_bundle(model, REVENUE_BASIS)
     incremental = bundle["incremental"]
+    current_revenue = bundle["baseline"]["total"]
+    expected_revenue = bundle["scenario"]["total"]
+
+    st.markdown(
+        "<div class='revenue-compare-grid'>"
+        "<div class='glass-card revenue-current-card'>"
+        "<div class='metric-label'>Current revenue</div>"
+        f"<div class='revenue-compare-amount'>{escape(fmt_cr(current_revenue, 1))}</div>"
+        "<div class='metric-secondary'>Expected by March at the current trajectory</div>"
+        "</div>"
+        "<div class='revenue-bridge-card'>"
+        f"<div class='revenue-bridge-delta'>{escape(fmt_cr_signed(incremental['total'], 1))}</div>"
+        f"<div class='metric-delta {_tone_for(incremental['total'])}'>{escape(fmt_pct_signed(incremental['uplift_pct']))}</div>"
+        "<div class='metric-secondary'>scenario uplift</div>"
+        "</div>"
+        "<div class='glass-card revenue-expected-card'>"
+        "<div class='metric-label'>Expected revenue</div>"
+        f"<div class='revenue-compare-amount'>{escape(fmt_cr(expected_revenue, 1))}</div>"
+        f"<div class='metric-secondary'>Scenario {model.scenario_id} expected by March</div>"
+        "</div>"
+        "</div>",
+        unsafe_allow_html=True,
+    )
 
     kpi_strip([
-        {"label": "Incremental revenue", "value": fmt_cr_signed(incremental["total"], 1),
+        {"label": "Revenue change", "value": fmt_cr_signed(incremental["total"], 1),
          "tone": _tone_for(incremental["total"]),
          "delta": fmt_pct_signed(incremental["uplift_pct"]),
-         "secondary": "versus the current run rate"},
-        {"label": "Baseline revenue", "value": fmt_cr(bundle["baseline"]["total"], 1),
-         "secondary": "current trajectory to March"},
-        {"label": "Scenario revenue", "value": fmt_cr(bundle["scenario"]["total"], 1),
-         "secondary": "selected scenario to March"},
-        {"label": "January revenue", "value": fmt_cr(bundle["january"]["total"], 1),
-         "secondary": "booked by the January milestone"},
-    ])
+         "secondary": "expected minus current"},
+        {"label": "January expected revenue", "value": fmt_cr(bundle["january"]["total"], 1),
+         "secondary": "by the January milestone"},
+    ], css_class="scenario-kpi-grid")
 
     frame, formats = build_revenue_impact(model, REVENUE_BASIS)
-    render_glass_table(frame, formats, total_rows=("Total",))
+    render_glass_table(frame, formats, total_rows=("Total",), css_class="scenario-table")
 
     parts = " + ".join(
         f"{asset} {fmt_cr_signed(incremental['by_asset'][asset], 1)}" for asset in ASSETS
@@ -5055,6 +5260,7 @@ def render_all_scenarios(
         render_glass_table(
             frame, formats,
             total_rows=(f"{scenario_id:02d} · {SCENARIOS[scenario_id]['short']}",),
+            css_class="scenario-table",
         )
         glass_note(
             "Scenarios 1–9 are calculated on the same scope and sales basis. The selected "
@@ -5078,8 +5284,9 @@ def render_segment_section(model: ScenarioModel, basis: str, counts: Dict[str, i
             tone="warn",
         )
  
+    segment_targets = dict(model.params.get("segment_targets", S6_SEGMENT_TARGETS))
     present = " · ".join(
-        f"{segment} {S6_SEGMENT_TARGETS[segment]:.0%} of FY target ({counts.get(segment, 0)} RMs)"
+        f"{segment} {float(segment_targets.get(segment, S6_SEGMENT_TARGETS[segment])):.1%} of FY target ({counts.get(segment, 0)} RMs)"
         for segment in SEGMENT_ORDER
     )
     glass_note(f"Scenario assumption — {present}.")
@@ -5088,7 +5295,7 @@ def render_segment_section(model: ScenarioModel, basis: str, counts: Dict[str, i
     for tab, sales in zip(tabs, ["NS", "GS"]):
         with tab:
             frame, formats = build_segment_scenario_analysis(model, sales)
-            render_glass_table(frame, formats, total_rows=("Overall",))
+            render_glass_table(frame, formats, total_rows=("Overall",), css_class="scenario-table")
  
     overall = model.cell(basis)
     lines = []
@@ -5133,9 +5340,9 @@ def render_channel_simulator(model: ScenarioModel, basis: str) -> None:
          "tone": _tone_for(incremental), "secondary": "versus the current projection"},
         {"label": "Channels in play", "value": f"{len(frame)} of {len(CHANNELS)}",
          "secondary": "mapped from workbook metadata"},
-    ])
+    ], css_class="scenario-kpi-grid")
 
-    render_glass_table(frame, formats)
+    render_glass_table(frame, formats, css_class="scenario-table")
 
     on_track = (frame["Jan Gap / Headroom"] >= 0).all() and (frame["Mar Gap / Headroom"] >= 0).all()
     if on_track:
@@ -5179,17 +5386,17 @@ def render_channel_optimizer(model: ScenarioModel, basis: str) -> None:
          "value": fmt_pct(float(np.mean(solved)) if solved else None),
          "secondary": "across mapped channels"},
         {"label": "January milestone", "value": fmt_pct(portfolio.get("jan_pct")),
-         "secondary": "held at 100% of FY target"},
+         "secondary": "editable portfolio January target"},
         {"label": "Feb–Mar leakage",
          "value": fmt_pct(model.params.get("leakage", S8_DEFAULT_LEAKAGE)),
          "secondary": "applied after January"},
-    ])
+    ], css_class="scenario-kpi-grid")
 
     display = frame.copy()
     display["Portfolio ambition"] = ambition
     display_formats = dict(formats)
     display_formats["Portfolio ambition"] = "pct"
-    render_glass_table(display, display_formats)
+    render_glass_table(display, display_formats, css_class="scenario-table")
 
     glass_callout(
         "The optimiser solves the minimum compounding trajectory each channel must run from July "
@@ -5223,7 +5430,7 @@ def render_scenario_drivers(
         if frame.empty:
             glass_note("No channel data is available for this scope.")
         else:
-            render_glass_table(frame, formats)
+            render_glass_table(frame, formats, css_class="scenario-table")
 
     with tabs[1]:
         rows: List[Dict[str, Any]] = []
@@ -5253,6 +5460,7 @@ def render_scenario_drivers(
                 "Run Rate Change %": "pct_signed", "Current March Projection %": "pct",
                 "Scenario March Projection %": "pct", "Incremental Sales": "cr_signed",
             },
+            css_class="scenario-table",
         )
 
 def render_detail_tables(model: ScenarioModel) -> None:
@@ -5262,13 +5470,13 @@ def render_detail_tables(model: ScenarioModel) -> None:
     tabs = st.tabs(["Current baseline", "Current vs scenario", "Scenario guide"])
     with tabs[0]:
         frame, formats = build_current_overview(model)
-        render_glass_table(frame, formats)
+        render_glass_table(frame, formats, css_class="scenario-table")
     with tabs[1]:
         frame, formats = build_comparison(model)
-        render_glass_table(frame, formats)
+        render_glass_table(frame, formats, css_class="scenario-table")
     with tabs[2]:
         guide = build_scenario_guide(model, REVENUE_BASIS)
-        render_glass_table(guide, {c: "txt" for c in guide.columns})
+        render_glass_table(guide, {c: "txt" for c in guide.columns}, css_class="scenario-table")
  
  
 def render_final_reference(payload: bytes) -> None:
