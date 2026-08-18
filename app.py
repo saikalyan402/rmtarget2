@@ -18,7 +18,7 @@ from openpyxl import load_workbook as openpyxl_load_workbook
 # 1. APPLICATION CONFIGURATION  (management assumptions only - no business data)
 # =============================================================================
  
-APP_TITLE = "Sales Performance"
+APP_TITLE = "Sales Performance Command Center"
 APP_SUBTITLE = "FY27 · Current reality → scenario planning → target achievement"
  
 # --- Financial-year timeline -------------------------------------------------
