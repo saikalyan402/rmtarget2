@@ -186,10 +186,9 @@ SCENARIOS: Dict[int, Dict[str, str]] = {
         "kind": "asset_channel_target",
         "thesis": "Edit Retail, DHNI, VRM and Insti inside Equity, Debt and Liquid; Digital stays out of the calculation.",
         "explanation": (
-            "Set linked March achievement targets for Retail, DHNI, VRM and Insti inside each asset class. "
-            "Retail can be drilled further by combined MKT TYPE buckets. Every achievement percentage is "
-            "Projected Number / FY27 Target, Digital is excluded from the denominator and numerator, and "
-            "Net Sales / Gross Sales move together by the same relative uplift."
+            "Read Current and FY27 Budget directly from FINAL, then set simulation achievement percentages "
+            "for Retail, DHNI, VRM and Insti inside each asset class. Projected Number = Simulation % × FY27 Budget. "
+            "Digital is excluded, and T2/T6/T30/B30/EM are read from the FINAL market matrix when present."
         ),
         "milestone": "March 2027 · editable Asset × Channel achievement targets",
     },
@@ -857,6 +856,8 @@ FINAL_ASSET_ROWS: List[str] = ["Equity", "Debt", "Liquid"]
 FINAL_CHANNEL_ROWS: List[str] = [
     "Retail", "DHNI", "VRM", "Insti", "Digital", "Alternatives", "Passives",
 ]
+FINAL_DETAIL_CHANNEL_ROWS: List[str] = ["Overall", "Retail", "DHNI", "VRM", "Insti", "Digital"]
+FINAL_MARKET_ROWS: List[str] = ["T2", "T6", "T30", "B30", "EM"]
  
  
 def _final_key(value: Any) -> str:
@@ -1026,6 +1027,123 @@ def _parse_final_sales_block(ws: Any, title: str, months_done: int) -> pd.DataFr
     return pd.DataFrame()
  
  
+
+def _final_sales_matrix_candidates(ws: Any, sales_code: str) -> List[Tuple[int, int, List[int]]]:
+    """Find repeated Target/YTD matrix headers such as the detailed GS/NS tables in FINAL."""
+    max_row, max_col = _scan_final_sheet(ws)
+    wanted = _final_key(sales_code)
+    candidates: List[Tuple[int, int, List[int]]] = []
+    for row in range(1, max_row + 1):
+        for col in range(1, max_col + 1):
+            if _final_key(ws.cell(row=row, column=col).value) != wanted:
+                continue
+            target_cols = [
+                cc
+                for cc in range(col + 1, min(max_col, col + 24) + 1)
+                if _final_key(ws.cell(row=row, column=cc).value) == "target"
+            ]
+            if len(target_cols) >= 4:
+                candidates.append((row, col, target_cols[:4]))
+    return candidates
+
+
+def _parse_final_sales_detail_matrix(ws: Any, sales_code: str) -> pd.DataFrame:
+    """
+    Parse the detailed FINAL matrix:
+      Overall / Retail / DHNI / VRM / Insti / Digital
+    crossed with:
+      Overall / Equity / Debt / Liquid -> Target, YTD, % Achievement.
+
+    Scenario 10 uses this block as its source of truth instead of rebuilding
+    current values from the RM calculation sheets.
+    """
+    max_row, _ = _scan_final_sheet(ws)
+    groups = ["Overall", "Equity", "Debt", "Liquid"]
+
+    for header_row, label_col, target_cols in _final_sales_matrix_candidates(ws, sales_code):
+        rows: List[Dict[str, Any]] = []
+        labels_found: set = set()
+
+        for row in range(header_row + 1, min(header_row + 14, max_row) + 1):
+            label = _final_known_label(ws.cell(row=row, column=label_col).value)
+            if label not in FINAL_DETAIL_CHANNEL_ROWS:
+                continue
+            labels_found.add(label)
+            for group, target_col in zip(groups, target_cols):
+                target = _final_number(ws.cell(row=row, column=target_col).value)
+                current = _final_number(ws.cell(row=row, column=target_col + 1).value)
+                if target is None and current is None:
+                    continue
+                rows.append({
+                    "Channel": label,
+                    "Asset": group,
+                    "FY27 Target": 0.0 if target is None else target,
+                    "Current": 0.0 if current is None else current,
+                })
+
+        # The management matrix must contain at least the main planning channels.
+        required = {"Overall", "Retail", "DHNI", "VRM", "Insti"}
+        if rows and len(required.intersection(labels_found)) >= 4:
+            frame = pd.DataFrame(rows)
+            frame["Current Achievement %"] = np.where(
+                frame["FY27 Target"] != 0,
+                frame["Current"] / frame["FY27 Target"],
+                0.0,
+            )
+            return frame
+
+    return pd.DataFrame()
+
+
+def _parse_final_market_detail_matrix(ws: Any, sales_code: str) -> pd.DataFrame:
+    """
+    Parse a FINAL market-type matrix when the workbook contains T2/T6/T30/B30/EM
+    under repeated Overall/Equity/Debt/Liquid Target/YTD headers.
+
+    No RM-sheet fallback is used for Scenario 10. If this matrix is not present
+    in FINAL, the market-type simulator reports that the FINAL source is absent.
+    """
+    max_row, _ = _scan_final_sheet(ws)
+    groups = ["Overall", "Equity", "Debt", "Liquid"]
+    wanted_markets = {_final_key(value): value for value in FINAL_MARKET_ROWS}
+
+    for header_row, label_col, target_cols in _final_sales_matrix_candidates(ws, sales_code):
+        rows: List[Dict[str, Any]] = []
+        found: set = set()
+
+        # Market rows are expected immediately below their own repeated header.
+        # Keep the window tight so a later market table is never accidentally
+        # attached to the earlier channel matrix.
+        for row in range(header_row + 1, min(header_row + 14, max_row) + 1):
+            raw = ws.cell(row=row, column=label_col).value
+            market = wanted_markets.get(_final_key(raw))
+            if market is None:
+                continue
+            found.add(market)
+            for group, target_col in zip(groups, target_cols):
+                target = _final_number(ws.cell(row=row, column=target_col).value)
+                current = _final_number(ws.cell(row=row, column=target_col + 1).value)
+                if target is None and current is None:
+                    continue
+                rows.append({
+                    "Market Type": market,
+                    "Asset": group,
+                    "FY27 Target": 0.0 if target is None else target,
+                    "Current": 0.0 if current is None else current,
+                })
+
+        if rows and len(found) >= 2:
+            frame = pd.DataFrame(rows)
+            frame["Current Achievement %"] = np.where(
+                frame["FY27 Target"] != 0,
+                frame["Current"] / frame["FY27 Target"],
+                0.0,
+            )
+            return frame
+
+    return pd.DataFrame()
+
+
 def _parse_final_aum_block(ws: Any) -> pd.DataFrame:
     """Parse Target / Current AUM from the FINAL management sheet."""
     positions = _find_final_cells(ws, "AUM")
@@ -1120,6 +1238,14 @@ def parse_final_dashboard_metrics(payload: bytes) -> Dict[str, Any]:
     gs = _parse_final_sales_block(ws, "GROSS SALES", months_done)
     ns = _parse_final_sales_block(ws, "NET SALES", months_done)
     aum = _parse_final_aum_block(ws)
+
+    # Scenario 10 reads its Current and FY27 Budget values directly from FINAL.
+    # These detailed matrices are intentionally kept separate from the regular
+    # run-rate blocks used by Scenarios 1-9.
+    gs_detail = _parse_final_sales_detail_matrix(ws, "GS")
+    ns_detail = _parse_final_sales_detail_matrix(ws, "NS")
+    gs_market = _parse_final_market_detail_matrix(ws, "GS")
+    ns_market = _parse_final_market_detail_matrix(ws, "NS")
  
     return {
         "sheet_name": sheet_name,
@@ -1127,6 +1253,10 @@ def parse_final_dashboard_metrics(payload: bytes) -> Dict[str, Any]:
         "GS": gs,
         "NS": ns,
         "AUM": aum,
+        "GS_DETAIL": gs_detail,
+        "NS_DETAIL": ns_detail,
+        "GS_MARKET": gs_market,
+        "NS_MARKET": ns_market,
     }
  
  
@@ -1912,18 +2042,16 @@ def calculate_scenario_9_grid(grid: pd.DataFrame, params: Dict[str, Any]) -> pd.
  
 
 # =============================================================================
-# 7B. SCENARIO 10 - LINKED ASSET × CHANNEL × RETAIL-MARKET SIMULATOR
+# 7B. SCENARIO 10 - FINAL-SHEET SIMULATION MODEL
 # =============================================================================
 
-# Scenario-10 management channels. B30/T30/T8 etc. remain Retail market-type
-# buckets. Institutional is an editable planning channel; Digital is identified
-# only so it can be excluded from every Scenario-10 calculation.
-S10_PLANNING_CHANNELS: List[str] = [
-    "Retail", "DHNI", "VRM", "Institutional",
-]
-# Market buckets such as T2 / T6 / T30 / B30 / EM are calculated on the
-# combined Retail + VRM + DHNI population. Institutional is not part of this
-# location cut, and Digital remains fully excluded from Scenario 10.
+# Scenario 10 is intentionally different from Scenarios 1-9:
+#   * CURRENT = the YTD value printed on FINAL (not YTD annualised to March)
+#   * FY27 BUDGET = the Target value printed on FINAL
+#   * PROJECTED NUMBER = editable Achievement % × FY27 BUDGET
+#   * Digital is fully excluded from the simulation roll-up
+#   * T2/T6/T30/B30/EM use the market matrix from FINAL only
+S10_PLANNING_CHANNELS: List[str] = ["Retail", "DHNI", "VRM", "Institutional"]
 S10_MARKET_CHANNELS: List[str] = ["Retail", "VRM", "DHNI"]
 S10_CHANNEL_LABELS: Dict[str, str] = {
     "Retail": "Retail",
@@ -1934,13 +2062,7 @@ S10_CHANNEL_LABELS: Dict[str, str] = {
 
 
 def _scenario10_market_bucket(value: Any) -> str:
-    """
-    Canonical Retail market bucket used everywhere in Scenario 10.
-
-    Requested combinations:
-      B30 + B30 Select -> B30
-      T30 + T30 Ext    -> T30
-    """
+    """Canonical market bucket: B30 Select -> B30, T30 Ext -> T30."""
     raw = str(value).replace("\u00a0", " ").strip()
     compact = " ".join(raw.replace("-", " ").replace("_", " ").split()).casefold()
     if compact in {"b30", "b30 select", "b30select"}:
@@ -1951,26 +2073,201 @@ def _scenario10_market_bucket(value: Any) -> str:
 
 
 def _scenario10_management_channel_from_values(vertical: Any, channel: Any) -> str:
-    """Convert the base-grid Vertical/Channel pair into one Scenario-10 channel."""
     vertical_text = str(vertical).strip()
     channel_text = str(channel).strip().casefold()
-
-    # Explicit Digital / Institutional mapping wins. This lets these channels
-    # sit beside Retail/DHNI/VRM without double counting them inside Retail.
-    if channel_text == "digital":
+    if channel_text == "digital" or vertical_text.casefold() == "digital":
         return "Digital"
-    if channel_text in {"institutional", "insti"}:
+    if channel_text in {"institutional", "insti"} or vertical_text.casefold() in {"institutional", "insti"}:
         return "Institutional"
-
     if vertical_text in {"Retail", "DHNI", "VRM"}:
         return vertical_text
     return vertical_text or "Unclassified"
 
 
 def _scenario10_management_channel(row: Dict[str, Any]) -> str:
+    if row.get("Scenario10Channel"):
+        return str(row.get("Scenario10Channel"))
     return _scenario10_management_channel_from_values(
         row.get("Vertical"), row.get("Channel")
     )
+
+
+def _scenario10_direct_stats(
+    fy_target: float,
+    current_value: float,
+    months_done: int = MONTHS_COMPLETED,
+) -> Dict[str, Any]:
+    """
+    FINAL-sheet baseline for Scenario 10.
+
+    IMPORTANT: `current_march` is deliberately the FINAL YTD/current value.
+    It is NOT multiplied by 4 and is NOT annualised.
+    """
+    fy_target = _z(fy_target)
+    current_value = _z(current_value)
+    months = max(int(months_done), 1)
+    current_pct = safe_div(current_value, fy_target)
+    return {
+        "fy_target": fy_target,
+        "ytd_target": 0.0,
+        "ytd_ach": current_value,
+        "current_rr": current_value / months,
+        "ytd_ach_pct": current_pct,
+        "fy_completed_pct": current_pct,
+        "current_march": current_value,
+        "current_march_pct": current_pct,
+    }
+
+
+def build_scenario10_final_grid(final_metrics: Dict[str, Any]) -> pd.DataFrame:
+    """
+    Create Scenario-10 input rows exclusively from FINAL.
+
+    Channel rows come from the detailed FINAL GS/NS matrix. Market rows come
+    from a T2/T6/T30/B30/EM matrix in FINAL when available. Digital is never
+    inserted into the Scenario-10 calculation grid.
+    """
+    rows: List[Dict[str, Any]] = []
+
+    for sales in SALES_TYPES:
+        detail = final_metrics.get(f"{sales}_DETAIL")
+        if not isinstance(detail, pd.DataFrame) or detail.empty:
+            continue
+
+        # Main channel × asset matrix. Do not use the Overall group here because
+        # Equity + Debt + Liquid are the additive building blocks.
+        for channel_label, planning_channel in [
+            ("Retail", "Retail"),
+            ("DHNI", "DHNI"),
+            ("VRM", "VRM"),
+            ("Insti", "Institutional"),
+        ]:
+            for asset in ASSETS:
+                hit = detail.loc[
+                    (detail["Channel"] == channel_label)
+                    & (detail["Asset"] == asset)
+                ]
+                if hit.empty:
+                    target = 0.0
+                    current = 0.0
+                else:
+                    target = _z(hit.iloc[0].get("FY27 Target"))
+                    current = _z(hit.iloc[0].get("Current"))
+
+                rows.append({
+                    "GridRole": "Channel",
+                    "Vertical": channel_label,
+                    "Segment": "FINAL",
+                    "Channel": "Institutional" if planning_channel == "Institutional" else channel_label,
+                    "MarketType": "Unspecified",
+                    "Scenario10Channel": planning_channel,
+                    "Sales": sales,
+                    "Asset": asset,
+                    "fy_target": target,
+                    "ytd_target": 0.0,
+                    "ytd_ach": current,
+                    "final_current": current,
+                    "source_sheet": "FINAL",
+                })
+
+        # Preserve the exact published FINAL Asset and Overall numbers. The
+        # detailed channel matrix can differ by 1 Cr because displayed values
+        # are rounded. Adjustment rows fix only those rounding differences and
+        # never add a simulated projected number.
+        published = final_metrics.get(sales)
+        if isinstance(published, pd.DataFrame) and not published.empty:
+            for published_asset in ASSETS:
+                if published_asset not in published.index:
+                    continue
+                channel_rows = [
+                    row for row in rows
+                    if row.get("Sales") == sales
+                    and row.get("GridRole") == "Channel"
+                    and row.get("Asset") == published_asset
+                ]
+                detail_target = sum(_z(row.get("fy_target")) for row in channel_rows)
+                detail_current = sum(_z(row.get("ytd_ach")) for row in channel_rows)
+                target_adjustment = _z(published.loc[published_asset].get("FY27 Target")) - detail_target
+                current_adjustment = _z(published.loc[published_asset].get("YTD")) - detail_current
+                if abs(target_adjustment) > 1e-9 or abs(current_adjustment) > 1e-9:
+                    rows.append({
+                        "GridRole": "Adjustment",
+                        "Vertical": f"{published_asset} Adjustment",
+                        "Segment": "FINAL",
+                        "Channel": f"{published_asset} Adjustment",
+                        "MarketType": "Unspecified",
+                        "Scenario10Channel": "Adjustment",
+                        "Sales": sales,
+                        "Asset": published_asset,
+                        "fy_target": target_adjustment,
+                        "ytd_target": 0.0,
+                        "ytd_ach": current_adjustment,
+                        "final_current": current_adjustment,
+                        "source_sheet": "FINAL",
+                    })
+
+            if "Overall" in published.index:
+                # At this point Channel + asset-adjustment rows equal the exact
+                # published Equity/Debt/Liquid numbers. Reconcile their sum to
+                # the published Overall line as a final rounding adjustment.
+                published_target = _z(published.loc["Overall"].get("FY27 Target"))
+                published_current = _z(published.loc["Overall"].get("YTD"))
+                current_rows = [
+                    row for row in rows
+                    if row.get("Sales") == sales
+                    and row.get("GridRole") in {"Channel", "Adjustment"}
+                    and row.get("Asset") != "Overall Adjustment"
+                ]
+                detail_target = sum(_z(row.get("fy_target")) for row in current_rows)
+                detail_current = sum(_z(row.get("ytd_ach")) for row in current_rows)
+                target_adjustment = published_target - detail_target
+                current_adjustment = published_current - detail_current
+                if abs(target_adjustment) > 1e-9 or abs(current_adjustment) > 1e-9:
+                    rows.append({
+                        "GridRole": "Adjustment",
+                        "Vertical": "Overall Adjustment",
+                        "Segment": "FINAL",
+                        "Channel": "Overall Adjustment",
+                        "MarketType": "Unspecified",
+                        "Scenario10Channel": "Adjustment",
+                        "Sales": sales,
+                        "Asset": "Overall Adjustment",
+                        "fy_target": target_adjustment,
+                        "ytd_target": 0.0,
+                        "ytd_ach": current_adjustment,
+                        "final_current": current_adjustment,
+                        "source_sheet": "FINAL",
+                    })
+
+        # Optional FINAL market-type matrix. This is a separate alternate cut;
+        # it is excluded from the main channel/asset aggregation to avoid double counting.
+        market = final_metrics.get(f"{sales}_MARKET")
+        if isinstance(market, pd.DataFrame) and not market.empty:
+            for market_type in FINAL_MARKET_ROWS:
+                for asset in ASSETS:
+                    hit = market.loc[
+                        (market["Market Type"] == market_type)
+                        & (market["Asset"] == asset)
+                    ]
+                    if hit.empty:
+                        continue
+                    rows.append({
+                        "GridRole": "Market",
+                        "Vertical": "Market",
+                        "Segment": "FINAL",
+                        "Channel": "Market",
+                        "MarketType": _scenario10_market_bucket(market_type),
+                        "Scenario10Channel": "Market",
+                        "Sales": sales,
+                        "Asset": asset,
+                        "fy_target": _z(hit.iloc[0].get("FY27 Target")),
+                        "ytd_target": 0.0,
+                        "ytd_ach": _z(hit.iloc[0].get("Current")),
+                        "final_current": _z(hit.iloc[0].get("Current")),
+                        "source_sheet": "FINAL",
+                    })
+
+    return pd.DataFrame(rows)
 
 
 def _scenario10_subset(
@@ -1979,48 +2276,52 @@ def _scenario10_subset(
     asset: Optional[str] = None,
     planning_channel: Optional[str] = None,
     market_type: Optional[str] = None,
+    include_adjustment: bool = False,
 ) -> pd.DataFrame:
-    """
-    Scenario-10 slice using management-channel and canonical market logic.
-
-    Digital is deliberately excluded from Scenario 10 whenever a specific
-    Digital slice is not explicitly requested. This makes every Scenario-10
-    Overall / Equity / Debt / Liquid denominator match the management view
-    shown as "excl Digital".
-    """
+    """Main Scenario-10 channel slice; Digital and market rows are excluded."""
     if grid is None or grid.empty:
         return pd.DataFrame(columns=getattr(grid, "columns", []))
 
-    mask = pd.Series(True, index=grid.index)
+    role = grid.get("GridRole", pd.Series("Channel", index=grid.index)).astype(str)
+    allowed_roles = ["Channel", "Adjustment"] if include_adjustment else ["Channel"]
+    mask = role.isin(allowed_roles)
     if sales is not None:
         mask &= grid["Sales"] == sales
     if asset is not None:
         mask &= grid["Asset"] == asset
-
-    management = pd.Series(
-        [
-            _scenario10_management_channel_from_values(v, c)
-            for v, c in zip(
-                grid["Vertical"],
-                grid.get("Channel", pd.Series("", index=grid.index)),
-            )
-        ],
-        index=grid.index,
-    )
-
     if planning_channel is not None:
-        mask &= management == planning_channel
-    else:
-        # Scenario-10 management totals are explicitly EX-DIGITAL.
-        mask &= management != "Digital"
+        scenario_channel = grid.get(
+            "Scenario10Channel", pd.Series("", index=grid.index)
+        ).astype(str)
+        mask &= scenario_channel == planning_channel
+    if market_type is not None:
+        # FINAL channel matrix does not contain a channel × market cross-tab.
+        # Keep this unsupported slice empty rather than inventing a split.
+        mask &= False
+    return grid.loc[mask].copy()
 
+
+def _scenario10_market_subset(
+    grid: pd.DataFrame,
+    sales: Optional[str] = None,
+    asset: Optional[str] = None,
+    market_type: Optional[str] = None,
+) -> pd.DataFrame:
+    """FINAL-only T2/T6/T30/B30/EM slice."""
+    if grid is None or grid.empty:
+        return pd.DataFrame(columns=getattr(grid, "columns", []))
+    role = grid.get("GridRole", pd.Series("", index=grid.index)).astype(str)
+    mask = role == "Market"
+    if sales is not None:
+        mask &= grid["Sales"] == sales
+    if asset is not None:
+        mask &= grid["Asset"] == asset
     if market_type is not None:
         requested = _scenario10_market_bucket(market_type)
         canonical = grid.get(
             "MarketType", pd.Series("Unspecified", index=grid.index)
         ).map(_scenario10_market_bucket)
         mask &= canonical == requested
-
     return grid.loc[mask].copy()
 
 
@@ -2039,10 +2340,9 @@ def _scenario10_current_stats(
         market_type=market_type,
     )
     if subset.empty:
-        return current_asset_stats(0.0, 0.0, 0.0)
-    return current_asset_stats(
+        return _scenario10_direct_stats(0.0, 0.0)
+    return _scenario10_direct_stats(
         subset["fy_target"].sum(),
-        subset["ytd_target"].sum(),
         subset["ytd_ach"].sum(),
     )
 
@@ -2050,44 +2350,6 @@ def _scenario10_current_stats(
 def _scenario10_safe_current_pct(stats: Dict[str, Any]) -> float:
     value = _num(stats.get("current_march_pct"))
     return 0.0 if value is None else float(value)
-
-
-def _scenario10_market_subset(
-    grid: pd.DataFrame,
-    sales: Optional[str] = None,
-    asset: Optional[str] = None,
-    market_type: Optional[str] = None,
-) -> pd.DataFrame:
-    """Retail + VRM + DHNI slice used for T2/T6/T30/B30/EM calculations."""
-    if grid is None or grid.empty:
-        return pd.DataFrame(columns=getattr(grid, "columns", []))
-
-    mask = pd.Series(True, index=grid.index)
-    if sales is not None:
-        mask &= grid["Sales"] == sales
-    if asset is not None:
-        mask &= grid["Asset"] == asset
-
-    management = pd.Series(
-        [
-            _scenario10_management_channel_from_values(v, c)
-            for v, c in zip(
-                grid["Vertical"],
-                grid.get("Channel", pd.Series("", index=grid.index)),
-            )
-        ],
-        index=grid.index,
-    )
-    mask &= management.isin(S10_MARKET_CHANNELS)
-
-    if market_type is not None:
-        requested = _scenario10_market_bucket(market_type)
-        canonical = grid.get(
-            "MarketType", pd.Series("Unspecified", index=grid.index)
-        ).map(_scenario10_market_bucket)
-        mask &= canonical == requested
-
-    return grid.loc[mask].copy()
 
 
 def _scenario10_market_stats(
@@ -2100,10 +2362,9 @@ def _scenario10_market_stats(
         grid, sales=sales, asset=asset, market_type=market_type
     )
     if subset.empty:
-        return current_asset_stats(0.0, 0.0, 0.0)
-    return current_asset_stats(
+        return _scenario10_direct_stats(0.0, 0.0)
+    return _scenario10_direct_stats(
         subset["fy_target"].sum(),
-        subset["ytd_target"].sum(),
         subset["ytd_ach"].sum(),
     )
 
@@ -2132,28 +2393,21 @@ def _scenario10_market_fy_target(
 
 
 def _scenario10_retail_locations(grid: pd.DataFrame) -> List[str]:
-    """Canonical market buckets across Retail + VRM + DHNI."""
     subset = _scenario10_market_subset(grid)
     if subset.empty or "MarketType" not in subset.columns:
         return []
-    values = {
+    present = {
         _scenario10_market_bucket(value)
         for value in subset["MarketType"].astype(str)
     }
-    ignored = {"", "nan", "none", "Unspecified"}
-    return sorted(
-        [value for value in values if value not in ignored],
-        key=lambda value: value.casefold(),
-    )
+    return [value for value in FINAL_MARKET_ROWS if value in present]
 
 
 def _scenario10_current_target_map(
     grid: pd.DataFrame,
 ) -> Dict[str, Dict[str, Dict[str, float]]]:
-    """Current March projection % for Sales × Asset × Scenario-10 channel."""
     targets: Dict[str, Dict[str, Dict[str, float]]] = {
-        sales: {asset: {} for asset in ASSETS}
-        for sales in SALES_TYPES
+        sales: {asset: {} for asset in ASSETS} for sales in SALES_TYPES
     }
     for sales in SALES_TYPES:
         for asset in ASSETS:
@@ -2169,11 +2423,9 @@ def _scenario10_current_target_map(
 def _scenario10_location_current_map(
     grid: pd.DataFrame,
 ) -> Dict[str, Dict[str, Dict[str, float]]]:
-    """Current projected % for T2/T6/T30/B30/EM using Retail + VRM + DHNI."""
     locations = _scenario10_retail_locations(grid)
     result: Dict[str, Dict[str, Dict[str, float]]] = {
-        sales: {asset: {} for asset in ASSETS}
-        for sales in SALES_TYPES
+        sales: {asset: {} for asset in ASSETS} for sales in SALES_TYPES
     }
     for sales in SALES_TYPES:
         for asset in ASSETS:
@@ -2192,96 +2444,125 @@ def _scenario10_target_for(
     market_type: str,
     current_floor: float,
 ) -> float:
-    """Resolve a channel target, then overlay the combined market uplift."""
+    """Scenario 10 allows any non-negative simulation percentage; no current floor."""
     configured = (
         params.get("asset_vertical_targets", {})
         .get(sales, {})
         .get(asset, {})
         .get(planning_channel, current_floor)
     )
-    base = _num(configured)
-    if base is None:
-        base = current_floor
-    base = max(float(base), float(current_floor))
+    value = _num(configured)
+    return max(0.0, current_floor if value is None else float(value))
 
-    # T2/T6/T30/B30/EM are a combined Retail + VRM + DHNI cut.  A market
-    # edit is stored as a relative factor and is applied to all three channels
-    # in that bucket. This makes the bucket's displayed percentage equal to:
-    #   sum(projected Retail + VRM + DHNI) / sum(target Retail + VRM + DHNI).
-    if planning_channel in S10_MARKET_CHANNELS:
-        canonical = _scenario10_market_bucket(market_type)
-        factor = (
-            params.get("market_location_factors", {})
-            .get(sales, {})
-            .get(asset, {})
-            .get(canonical, 1.0)
-        )
-        parsed_factor = _num(factor)
-        if parsed_factor is None:
-            parsed_factor = 1.0
-        base *= max(1.0, float(parsed_factor))
 
-    return base
+def _scenario10_market_target_for(
+    params: Dict[str, Any],
+    sales: str,
+    asset: str,
+    market_type: str,
+    current_pct: float,
+) -> float:
+    configured = (
+        params.get("retail_location_targets", {})
+        .get(sales, {})
+        .get(asset, {})
+        .get(_scenario10_market_bucket(market_type), current_pct)
+    )
+    value = _num(configured)
+    return max(0.0, current_pct if value is None else float(value))
+
+
+def _scenario10_compute_cell(
+    fy_target: float,
+    current_value: float,
+    target_pct: float,
+    role: str = "Channel",
+) -> Dict[str, Any]:
+    """FINAL-based Scenario-10 cell: Projected Number = % × FY27 Budget."""
+    stats = _scenario10_direct_stats(fy_target, current_value)
+    cell = _blank_cell(stats)
+
+    if role == "Adjustment":
+        # Preserve FINAL's published overall rounding/current without adding a
+        # projected amount to the channel simulation.
+        cell.update({
+            "scen_rr": 0.0,
+            "feb_mar_rr": 0.0,
+            "jan_amount": current_value,
+            "march_required": 0.0,
+            "march_amount": 0.0,
+            "milestone_pct": None,
+        })
+        return _finalise_cell(cell)
+
+    projected = _z(fy_target) * max(0.0, float(target_pct))
+    scen_rr = (projected - _z(current_value)) / max(MONTHS_REMAINING, 1)
+    cell.update({
+        "scen_rr": scen_rr,
+        "feb_mar_rr": scen_rr,
+        "march_required": projected,
+        "jan_amount": _z(current_value) + scen_rr * MONTHS_JUL_JAN,
+        "march_amount": projected,
+        "milestone_pct": max(0.0, float(target_pct)),
+    })
+    return _finalise_cell(cell)
 
 
 def calculate_scenario_10_grid(
     grid: pd.DataFrame,
     params: Dict[str, Any],
 ) -> pd.DataFrame:
-    """
-    Scenario 10: linked NS/GS planning for Retail, DHNI, VRM and Insti.
-
-    Digital is excluded completely from Scenario-10 calculations. Retail is
-    further evaluated at canonical MarketType grain. Institutional remains a
-    separate editable planning channel.
-    """
-    channel_floors = _scenario10_current_target_map(grid)
+    """Evaluate Scenario 10 entirely on the FINAL-derived grid."""
     rows: List[Dict[str, Any]] = []
 
     for row in grid.to_dict("records"):
+        role = str(row.get("GridRole", "Channel"))
         sales = row["Sales"]
         asset = row["Asset"]
-        planning_channel = _scenario10_management_channel(row)
+        current_value = _z(row.get("ytd_ach"))
+        fy_target = _z(row.get("fy_target"))
 
-        # Management Scenario 10 is explicitly calculated EX-DIGITAL.
-        if planning_channel == "Digital":
-            continue
+        if role == "Adjustment":
+            target_pct = 0.0
+        elif role == "Market":
+            current_pct = safe_div(current_value, fy_target) or 0.0
+            target_pct = _scenario10_market_target_for(
+                params,
+                sales,
+                asset,
+                str(row.get("MarketType", "Unspecified")),
+                current_pct,
+            )
+        else:
+            planning_channel = _scenario10_management_channel(row)
+            current_pct = safe_div(current_value, fy_target) or 0.0
+            target_pct = _scenario10_target_for(
+                params,
+                sales,
+                asset,
+                planning_channel,
+                str(row.get("MarketType", "Unspecified")),
+                current_pct,
+            )
 
-        raw_market_type = str(row.get("MarketType", "Unspecified"))
-        market_type = _scenario10_market_bucket(raw_market_type)
-
-        floor_pct = channel_floors.get(sales, {}).get(asset, {}).get(
-            planning_channel, 0.0
-        )
-
-        target_pct = _scenario10_target_for(
-            params,
-            sales,
-            asset,
-            planning_channel,
-            market_type,
-            floor_pct,
-        )
-
-        cell = compute_cell(
-            row["fy_target"],
-            row["ytd_target"],
-            row["ytd_ach"],
-            kind="march_target",
-            multiplier=target_pct,
+        cell = _scenario10_compute_cell(
+            fy_target,
+            current_value,
+            target_pct,
+            role=role,
         )
         cell.update({
-            "Vertical": row["Vertical"],
-            "Segment": row["Segment"],
-            "Channel": row.get("Channel", "Unclassified"),
-            "MarketType": raw_market_type,
-            "Scenario10Channel": planning_channel,
-            "Scenario10MarketType": market_type,
+            "GridRole": role,
+            "Vertical": row.get("Vertical", ""),
+            "Segment": row.get("Segment", "FINAL"),
+            "Channel": row.get("Channel", ""),
+            "MarketType": row.get("MarketType", "Unspecified"),
+            "Scenario10Channel": row.get("Scenario10Channel", ""),
+            "Scenario10MarketType": _scenario10_market_bucket(row.get("MarketType", "Unspecified")),
             "Sales": sales,
             "Asset": asset,
-            "aum_target": _z(row.get("aum_target")),
             "scenario_10_target_pct": target_pct,
-            "scenario_10_current_floor_pct": floor_pct,
+            "source_sheet": "FINAL",
         })
         rows.append(cell)
 
@@ -2292,7 +2573,6 @@ def build_scenario_10_asset_summary(
     model: "ScenarioModel",
     sales: str,
 ) -> Tuple[pd.DataFrame, Dict[str, str]]:
-    """Automatic Equity / Debt / Liquid roll-up after every Scenario-10 edit."""
     rows: List[Dict[str, Any]] = []
     for asset in ASSETS:
         cell = model.cell(sales, asset=asset)
@@ -2300,31 +2580,30 @@ def build_scenario_10_asset_summary(
         scenario_pct = _num(cell.get("march_pct"))
         change_pts = None if current_pct is None or scenario_pct is None else scenario_pct - current_pct
         relative_change = (
-            None if current_pct is None or current_pct == 0 or scenario_pct is None
+            None if current_pct in (None, 0) or scenario_pct is None
             else scenario_pct / current_pct - 1.0
         )
         rows.append({
             "Asset Class": asset,
-            "FY Target": cell.get("fy_target"),
-            "Current Projected Number": cell.get("current_march"),
-            "Current March %": current_pct,
-            "Scenario Projected Number": cell.get("march_amount"),
-            "Scenario March %": scenario_pct,
+            "FY27 Budget": cell.get("fy_target"),
+            "Current (FINAL YTD)": cell.get("current_march"),
+            "Current %": current_pct,
+            "Simulation Projected Number": cell.get("march_amount"),
+            "Simulation Achievement %": scenario_pct,
             "Change vs Current": change_pts,
             "Relative Change %": relative_change,
-            "Current Run Rate": cell.get("current_rr"),
-            "Required Scenario Run Rate": cell.get("scen_rr"),
-            "Run Rate Change %": cell.get("rr_change_pct"),
-            "Incremental Sales": cell.get("incremental_sales"),
+            "Required Remaining-Month RR": cell.get("scen_rr"),
         })
     formats = {
-        "Asset Class": "txt", "FY Target": "cr",
-        "Current Projected Number": "cr", "Current March %": "pct",
-        "Scenario Projected Number": "cr", "Scenario March %": "pct",
+        "Asset Class": "txt",
+        "FY27 Budget": "cr",
+        "Current (FINAL YTD)": "cr",
+        "Current %": "pct",
+        "Simulation Projected Number": "cr",
+        "Simulation Achievement %": "pct",
         "Change vs Current": "pts",
-        "Relative Change %": "pct_signed", "Current Run Rate": "cr",
-        "Required Scenario Run Rate": "cr", "Run Rate Change %": "pct_signed",
-        "Incremental Sales": "cr_signed",
+        "Relative Change %": "pct_signed",
+        "Required Remaining-Month RR": "cr",
     }
     return pd.DataFrame(rows), formats
 
@@ -2333,18 +2612,20 @@ def build_scenario_10_channel_detail(
     model: "ScenarioModel",
     sales: str,
 ) -> Tuple[pd.DataFrame, Dict[str, str]]:
-    """Retail / DHNI / VRM / Insti detail inside each asset class. Digital excluded."""
     rows: List[Dict[str, Any]] = []
     frame = model.scenario_grid
     if frame is None or frame.empty:
         return pd.DataFrame(), {}
 
+    channel_frame = frame.loc[
+        frame.get("GridRole", pd.Series("Channel", index=frame.index)).astype(str) == "Channel"
+    ]
     for asset in ASSETS:
         for channel in S10_PLANNING_CHANNELS:
-            subset = frame[
-                (frame["Sales"] == sales)
-                & (frame["Asset"] == asset)
-                & (frame.get("Scenario10Channel", "") == channel)
+            subset = channel_frame.loc[
+                (channel_frame["Sales"] == sales)
+                & (channel_frame["Asset"] == asset)
+                & (channel_frame["Scenario10Channel"] == channel)
             ]
             if subset.empty:
                 continue
@@ -2352,32 +2633,23 @@ def build_scenario_10_channel_detail(
             current_pct = _num(cell.get("current_march_pct"))
             scenario_pct = _num(cell.get("march_pct"))
             change_pts = None if current_pct is None or scenario_pct is None else scenario_pct - current_pct
-            relative_change = (
-                None if current_pct is None or current_pct == 0 or scenario_pct is None
-                else scenario_pct / current_pct - 1.0
-            )
             rows.append({
                 "Asset Class": asset,
                 "Channel": S10_CHANNEL_LABELS.get(channel, channel),
-                "FY Target": cell.get("fy_target"),
-                "Current Projected Number": cell.get("current_march"),
-                "Current March %": current_pct,
-                "Scenario Projected Number": cell.get("march_amount"),
-                "Scenario March %": scenario_pct,
+                "FY27 Budget": cell.get("fy_target"),
+                "Current (FINAL YTD)": cell.get("current_march"),
+                "Current %": current_pct,
+                "Simulation Projected Number": cell.get("march_amount"),
+                "Simulation Achievement %": scenario_pct,
                 "Change vs Current": change_pts,
-                "Relative Change %": relative_change,
-                "Current Run Rate": cell.get("current_rr"),
-                "Required Scenario Run Rate": cell.get("scen_rr"),
-                "Run Rate Change %": cell.get("rr_change_pct"),
-                "Incremental Sales": cell.get("incremental_sales"),
+                "Required Remaining-Month RR": cell.get("scen_rr"),
             })
     formats = {
-        "Asset Class": "txt", "Channel": "txt", "FY Target": "cr",
-        "Current Projected Number": "cr", "Current March %": "pct",
-        "Scenario Projected Number": "cr", "Scenario March %": "pct",
-        "Change vs Current": "pts", "Relative Change %": "pct_signed",
-        "Current Run Rate": "cr", "Required Scenario Run Rate": "cr",
-        "Run Rate Change %": "pct_signed", "Incremental Sales": "cr_signed",
+        "Asset Class": "txt", "Channel": "txt",
+        "FY27 Budget": "cr", "Current (FINAL YTD)": "cr",
+        "Current %": "pct", "Simulation Projected Number": "cr",
+        "Simulation Achievement %": "pct", "Change vs Current": "pts",
+        "Required Remaining-Month RR": "cr",
     }
     return pd.DataFrame(rows), formats
 
@@ -2386,49 +2658,47 @@ def build_scenario_10_retail_location_detail(
     model: "ScenarioModel",
     sales: str,
 ) -> Tuple[pd.DataFrame, Dict[str, str]]:
-    """T2/T6/T30/B30/EM detail based on Retail + VRM + DHNI combined."""
+    """T2/T6/T30/B30/EM source and scenario values straight from FINAL."""
     rows: List[Dict[str, Any]] = []
     frame = model.scenario_grid
-    if frame is None or frame.empty or "Scenario10MarketType" not in frame.columns:
+    if frame is None or frame.empty:
+        return pd.DataFrame(), {}
+    market_frame = frame.loc[
+        frame.get("GridRole", pd.Series("", index=frame.index)).astype(str) == "Market"
+    ]
+    if market_frame.empty:
         return pd.DataFrame(), {}
 
     for asset in ASSETS:
-        asset_rows = frame[
-            (frame["Sales"] == sales)
-            & (frame["Asset"] == asset)
-            & (frame["Scenario10Channel"].isin(S10_MARKET_CHANNELS))
-        ]
-        for location in sorted(asset_rows["Scenario10MarketType"].astype(str).unique()):
-            if location in {"", "Unspecified", "nan", "None"}:
-                continue
-            subset = asset_rows[
-                asset_rows["Scenario10MarketType"].astype(str) == str(location)
+        for location in FINAL_MARKET_ROWS:
+            subset = market_frame.loc[
+                (market_frame["Sales"] == sales)
+                & (market_frame["Asset"] == asset)
+                & (market_frame["Scenario10MarketType"] == location)
             ]
             if subset.empty:
                 continue
             cell = summarize_cells(subset)
             current_pct = _num(cell.get("current_march_pct"))
             scenario_pct = _num(cell.get("march_pct"))
-            delta = None if current_pct is None or scenario_pct is None else scenario_pct - current_pct
             rows.append({
                 "Asset Class": asset,
                 "Market Type · Retail + VRM + DHNI": location,
-                "FY Target": cell.get("fy_target"),
-                "Current Projected Number": cell.get("current_march"),
-                "Current March %": current_pct,
-                "Scenario Projected Number": cell.get("march_amount"),
-                "Scenario March %": scenario_pct,
-                "Change vs Current": delta,
-                "Current Run Rate": cell.get("current_rr"),
-                "Scenario Run Rate": cell.get("scen_rr"),
-                "Incremental Sales": cell.get("incremental_sales"),
+                "FY27 Budget": cell.get("fy_target"),
+                "Current (FINAL YTD)": cell.get("current_march"),
+                "Current %": current_pct,
+                "Simulation Projected Number": cell.get("march_amount"),
+                "Simulation Achievement %": scenario_pct,
+                "Change vs Current": (
+                    None if current_pct is None or scenario_pct is None
+                    else scenario_pct - current_pct
+                ),
             })
     formats = {
-        "Asset Class": "txt", "Market Type · Retail + VRM + DHNI": "txt", "FY Target": "cr",
-        "Current Projected Number": "cr", "Current March %": "pct",
-        "Scenario Projected Number": "cr", "Scenario March %": "pct",
-        "Change vs Current": "pts", "Current Run Rate": "cr",
-        "Scenario Run Rate": "cr", "Incremental Sales": "cr_signed",
+        "Asset Class": "txt", "Market Type · Retail + VRM + DHNI": "txt",
+        "FY27 Budget": "cr", "Current (FINAL YTD)": "cr",
+        "Current %": "pct", "Simulation Projected Number": "cr",
+        "Simulation Achievement %": "pct", "Change vs Current": "pts",
     }
     return pd.DataFrame(rows), formats
 
@@ -2483,6 +2753,11 @@ class ScenarioModel:
         else:
             frame = self.scenario_grid
             mask = frame["Sales"] == sales
+            if self.scenario_id == 10 and "GridRole" in frame.columns:
+                # Main Scenario-10 totals use FINAL channel rows only, plus the
+                # tiny published-Overall rounding adjustment. Market rows are an
+                # alternate cut and must never be double counted here.
+                mask &= frame["GridRole"].astype(str).isin(["Channel", "Adjustment"])
             if asset is not None:
                 mask &= frame["Asset"] == asset
             if vertical is not None:
@@ -2502,10 +2777,25 @@ class ScenarioModel:
  
     def baseline(self, sales: str, **filters: Any) -> Dict[str, Any]:
         if self.scenario_id == 10:
-            # Keep the current baseline on the same EX-DIGITAL denominator as
-            # the Scenario-10 outcome.
-            non_digital = _scenario10_subset(self.grid)
-            return summarize_current(non_digital, sales=sales, **filters)
+            frame = self.grid
+            if frame is None or frame.empty:
+                return _scenario10_direct_stats(0.0, 0.0)
+            mask = frame["Sales"] == sales
+            if "GridRole" in frame.columns:
+                mask &= frame["GridRole"].astype(str).isin(["Channel", "Adjustment"])
+            if filters.get("asset") is not None:
+                mask &= frame["Asset"] == filters.get("asset")
+            if filters.get("vertical") is not None:
+                mask &= frame["Vertical"] == filters.get("vertical")
+            if filters.get("segment") is not None:
+                mask &= frame["Segment"] == filters.get("segment")
+            if filters.get("channel") is not None and "Channel" in frame.columns:
+                mask &= frame["Channel"] == filters.get("channel")
+            subset = frame.loc[mask]
+            return _scenario10_direct_stats(
+                subset["fy_target"].sum() if not subset.empty else 0.0,
+                subset["ytd_ach"].sum() if not subset.empty else 0.0,
+            )
         return summarize_current(self.grid, sales=sales, **filters)
  
     def implied_milestones(self, sales: str) -> Dict[str, Optional[float]]:
@@ -2605,6 +2895,9 @@ def _model_metric_baseline(model: "ScenarioModel", sales: str, label: str) -> Di
         return model.baseline(sales, asset=label)
     if label in VERTICALS:
         return model.baseline(sales, vertical=label)
+    if model.scenario_id == 10 and label == "Insti":
+        return model.baseline(sales, vertical="Insti")
+    # Digital is intentionally outside Scenario 10.
     return {}
  
  
@@ -2615,6 +2908,9 @@ def _model_metric_cell(model: "ScenarioModel", sales: str, label: str) -> Option
         return model.cell(sales, asset=label)
     if label in VERTICALS:
         return model.cell(sales, vertical=label)
+    if model.scenario_id == 10 and label == "Insti":
+        return model.cell(sales, vertical="Insti")
+    # Digital stays visible as FINAL current data but has no Scenario-10 outcome.
     return None
  
  
@@ -2693,8 +2989,14 @@ def build_final_scenario_comparison(
  
         final_target = _num(source.get("FY27 Target"))
         current_rr = _num(source.get("Current RR"))
-        current_projection = _num(source.get("Estimated FY @ Current RR"))
-        current_pct = _num(source.get("Projected FY %"))
+        if model.scenario_id == 10:
+            # Scenario 10's CURRENT column is exactly FINAL YTD/current. It is
+            # not the annualised Apr-Jun run-rate projection used elsewhere.
+            current_projection = _num(source.get("YTD"))
+            current_pct = safe_div(current_projection, final_target)
+        else:
+            current_projection = _num(source.get("Estimated FY @ Current RR"))
+            current_pct = _num(source.get("Projected FY %"))
  
         model_base = _model_metric_baseline(model, sales, label)
         model_target = _num(model_base.get("fy_target")) if model_base else None
@@ -2747,6 +3049,7 @@ def build_final_scenario_comparison(
             }
         )
  
+    frame = pd.DataFrame(rows)
     formats = {
         "Metric": "txt",
         "FY27 Target": "cr",
@@ -2759,9 +3062,34 @@ def build_final_scenario_comparison(
         "Run Rate Change %": "pct_signed",
         "Scenario March Estimate": "cr",
         "Scenario March %": "pct",
-        "Scenario \u0394 pp": "pts",
+        "Scenario Δ pp": "pts",
     }
-    return pd.DataFrame(rows), formats
+
+    if model.scenario_id == 10 and not frame.empty:
+        frame = frame.rename(columns={
+            "FY27 Target": "FY27 Budget",
+            "Current FY Estimate": "Current (FINAL YTD)",
+            "Current Projected %": "Current %",
+            "Scenario / Required RR": "Required Remaining-Month RR",
+            "Scenario March Estimate": "Simulation Projected Number",
+            "Scenario March %": "Simulation Achievement %",
+            "Scenario Δ pp": "Change vs Current",
+        })
+        formats = {
+            "Metric": "txt",
+            "FY27 Budget": "cr",
+            "YTD": "cr",
+            "Current RR": "cr",
+            "Required RR to Target": "cr",
+            "Current (FINAL YTD)": "cr",
+            "Current %": "pct",
+            "Required Remaining-Month RR": "cr",
+            "Run Rate Change %": "pct_signed",
+            "Simulation Projected Number": "cr",
+            "Simulation Achievement %": "pct",
+            "Change vs Current": "pts",
+        }
+    return frame, formats
  
  
 # =============================================================================
@@ -3177,8 +3505,8 @@ def build_scenario_guide(model: ScenarioModel, basis: str) -> pd.DataFrame:
             "Scenario": "Scenario 10 settings",
             "Description": (
                 "Retail, DHNI, VRM and Insti are editable inside Equity, Debt and Liquid; Digital is excluded. "
-                "Retail can be drilled to MKT TYPE. Every percentage is Projected Number / FY27 Target; "
-                "Net/Gross Sales are linked by the same relative uplift and each target is floored at current projection."
+                "Current and FY27 Budget are read directly from FINAL. Projected Number = Simulation % × FY27 Budget. "
+                "T2/T6/T30/B30/EM are also read from FINAL when that market matrix is present."
             ),
             "Milestone": "March 2027",
             "Selected": "",
@@ -5359,9 +5687,9 @@ def _scenario10_slug(value: Any) -> str:
 
 
 def _scenario10_scope_prefix() -> str:
-    channel = st.session_state.get("scope_channel", "All")
-    location = st.session_state.get("scope_location", "All")
-    return f"s10v3_{_scenario10_slug(channel)}_{_scenario10_slug(location)}"
+    # Scenario 10 is portfolio-level and FINAL-sourced; RM scope filters do not
+    # change its source numbers.
+    return "s10_final"
 
 
 def _scenario10_current_pct(
@@ -5371,24 +5699,29 @@ def _scenario10_current_pct(
     vertical: Optional[str] = None,
     market_type: Optional[str] = None,
 ) -> float:
-    # A blank vertical means the Scenario-10 management total, which is EX-DIGITAL.
-    if vertical is None or vertical in S10_PLANNING_CHANNELS:
-        stats = _scenario10_current_stats(
-            grid,
-            sales,
-            asset,
-            planning_channel=vertical,
-            market_type=market_type,
-        )
-    else:
-        stats = summarize_current(
-            grid,
-            sales=sales,
-            asset=asset,
-            vertical=vertical,
-            market_type=market_type,
-        )
+    if market_type is not None:
+        return _scenario10_market_current_pct(grid, sales, asset, market_type)
+    stats = _scenario10_current_stats(
+        grid,
+        sales,
+        asset,
+        planning_channel=vertical,
+    )
     return _scenario10_safe_current_pct(stats)
+
+
+def _scenario10_current_number(
+    grid: pd.DataFrame,
+    sales: str,
+    asset: str,
+    vertical: Optional[str] = None,
+    market_type: Optional[str] = None,
+) -> float:
+    if market_type is not None:
+        stats = _scenario10_market_stats(grid, sales, asset, market_type)
+    else:
+        stats = _scenario10_current_stats(grid, sales, asset, planning_channel=vertical)
+    return _z(stats.get("current_march"))
 
 
 def _scenario10_fy_target(
@@ -5398,22 +5731,14 @@ def _scenario10_fy_target(
     vertical: Optional[str] = None,
     market_type: Optional[str] = None,
 ) -> float:
-    if vertical is None or vertical in S10_PLANNING_CHANNELS:
-        subset = _scenario10_subset(
-            grid,
-            sales=sales,
-            asset=asset,
-            planning_channel=vertical,
-            market_type=market_type,
-        )
-    else:
-        subset = filter_grid(
-            grid,
-            sales=sales,
-            asset=asset,
-            vertical=vertical,
-            market_type=market_type,
-        )
+    if market_type is not None:
+        return _scenario10_market_fy_target(grid, sales, asset, market_type)
+    subset = _scenario10_subset(
+        grid,
+        sales=sales,
+        asset=asset,
+        planning_channel=vertical,
+    )
     return float(subset["fy_target"].sum()) if not subset.empty else 0.0
 
 
@@ -5422,58 +5747,27 @@ def _scenario10_factor_key(prefix: str, asset: str, scope: str) -> str:
 
 
 def _scenario10_get_factor(prefix: str, asset: str, scope: str) -> float:
-    key = _scenario10_factor_key(prefix, asset, scope)
-    value = _num(st.session_state.get(key, 1.0))
-    return max(1.0, 1.0 if value is None else float(value))
+    value = _num(st.session_state.get(_scenario10_factor_key(prefix, asset, scope), 1.0))
+    return max(0.0, 1.0 if value is None else float(value))
 
 
 def _scenario10_set_factor(prefix: str, asset: str, scope: str, factor: float) -> None:
-    st.session_state[_scenario10_factor_key(prefix, asset, scope)] = max(1.0, float(factor))
+    st.session_state[_scenario10_factor_key(prefix, asset, scope)] = max(0.0, float(factor))
 
 
-def _scenario10_linked_target(current_pct: float, factor: float, fallback_pct: float = 0.0) -> float:
+def _scenario10_linked_target(
+    current_pct: float,
+    factor: float,
+    fallback_pct: float = 0.0,
+) -> float:
     if current_pct > 0:
-        return current_pct * max(1.0, factor)
+        return max(0.0, current_pct * max(0.0, factor))
     return max(float(fallback_pct), 0.0)
-
-
-def _scenario10_retail_location_weights(
-    grid: pd.DataFrame,
-    sales: str,
-    asset: str,
-) -> Tuple[Dict[str, float], str]:
-    """Reference weights for combined Retail + VRM + DHNI market buckets."""
-    locations = _scenario10_retail_locations(grid)
-    if not locations:
-        return {}, "No Retail + VRM + DHNI market split"
-
-    ratios: Dict[str, float] = {}
-    for location in locations:
-        fy_target = _scenario10_market_fy_target(grid, sales, asset, location)
-        projected_pct = _scenario10_market_current_pct(grid, sales, asset, location)
-        projected_number = fy_target * projected_pct
-        ratios[location] = (projected_number / fy_target) if fy_target > 0 else 0.0
-
-    ratio_total = sum(max(value, 0.0) for value in ratios.values())
-    if ratio_total > 0:
-        return (
-            {key: max(value, 0.0) / ratio_total for key, value in ratios.items()},
-            "Σ projected (Retail + VRM + DHNI) ÷ Σ target",
-        )
-
-    equal = 1.0 / len(locations)
-    return (
-        {location: equal for location in locations},
-        "Σ projected ÷ Σ target (zero-base fallback)",
-    )
 
 
 def _scenario10_prepare_basis_switch(prefix: str, edit_basis: str) -> None:
     previous = st.session_state.get(f"{prefix}_last_basis")
     if previous != edit_basis:
-        for key in list(st.session_state.keys()):
-            if str(key).startswith(f"{prefix}_widget_{edit_basis.lower()}_"):
-                st.session_state.pop(key, None)
         st.session_state[f"{prefix}_last_basis"] = edit_basis
 
 
@@ -5484,238 +5778,97 @@ def _scenario10_channel_input(
     asset: str,
     channel: str,
 ) -> Tuple[float, float, float]:
-    """Editable basis target %, linked-basis target %, and shared uplift factor."""
+    """Edit FINAL achievement %, link the opposite sales basis by relative change."""
     other_basis = "GS" if edit_basis == "NS" else "NS"
     current_primary = _scenario10_current_pct(grid, edit_basis, asset, channel)
     current_other = _scenario10_current_pct(grid, other_basis, asset, channel)
     factor = _scenario10_get_factor(prefix, asset, channel)
-    default_primary = _scenario10_linked_target(current_primary, factor, current_primary)
+    default_primary = (
+        current_primary * factor if current_primary > 0 else max(current_primary, 0.0)
+    )
 
     widget_key = (
         f"{prefix}_widget_{edit_basis.lower()}_{_scenario10_slug(asset)}_"
         f"{_scenario10_slug(channel)}"
     )
     if widget_key not in st.session_state:
-        st.session_state[widget_key] = default_primary * 100.0
+        st.session_state[widget_key] = max(default_primary, 0.0) * 100.0
 
     label = S10_CHANNEL_LABELS.get(channel, channel)
     value = st.number_input(
-        f"{label} target %",
-        min_value=float(current_primary * 100.0),
+        f"{label} simulation %",
+        min_value=0.0,
         value=float(st.session_state[widget_key]),
         step=1.0,
         format="%.1f",
         key=widget_key,
         help=(
-            f"Minimum = current {SALES_LABEL[edit_basis]} March projection "
-            f"({current_primary:.1%}). {SALES_LABEL[other_basis]} moves by the "
-            "same relative uplift, preserving the current NS/GS relationship."
+            f"Current is read directly from FINAL: Current ÷ FY27 Budget = "
+            f"{current_primary:.1%}. Projected Number = this simulation % × FY27 Budget."
         ),
     ) / 100.0
 
     if current_primary > 0:
-        factor = max(1.0, value / current_primary)
-    elif current_other > 0 and value > 0:
-        # No ratio exists on the editable side. Keep the opposite side at least
-        # at its current projection; the entered absolute target still applies
-        # to the selected basis.
-        factor = 1.0
+        factor = max(0.0, value / current_primary)
     else:
         factor = 1.0
     _scenario10_set_factor(prefix, asset, channel, factor)
-    linked = _scenario10_linked_target(current_other, factor, value)
+
+    linked = (
+        max(0.0, current_other * factor)
+        if current_other > 0 and current_primary > 0
+        else max(0.0, value)
+    )
     return value, linked, factor
 
 
-def _scenario10_market_pct_from_channel_targets(
-    grid: pd.DataFrame,
-    sales: str,
-    asset: str,
-    location: str,
-    channel_targets: Dict[str, float],
-) -> float:
-    """Combined market % = Σ projected / Σ target for Retail + VRM + DHNI."""
-    subset = _scenario10_market_subset(
-        grid, sales=sales, asset=asset, market_type=location
-    )
-    if subset.empty:
-        return 0.0
-    target_total = float(subset["fy_target"].sum())
-    if target_total <= 0:
-        return 0.0
-
-    amount = 0.0
-    for row in subset.to_dict("records"):
-        channel = _scenario10_management_channel(row)
-        pct = channel_targets.get(
-            channel,
-            _scenario10_current_pct(grid, sales, asset, channel),
-        )
-        amount += _z(row.get("fy_target")) * pct
-    return amount / target_total
-
-
 def _scenario10_market_location_input(
+    grid: pd.DataFrame,
     prefix: str,
     edit_basis: str,
     asset: str,
     location: str,
-    primary_base_pct: float,
-    linked_base_pct: float,
 ) -> Tuple[float, float, float]:
-    """Edit the combined Retail + VRM + DHNI location percentage."""
+    """Edit a FINAL T2/T6/T30/B30/EM achievement percentage."""
     other_basis = "GS" if edit_basis == "NS" else "NS"
+    current_primary = _scenario10_market_current_pct(grid, edit_basis, asset, location)
+    current_other = _scenario10_market_current_pct(grid, other_basis, asset, location)
     scope = f"Market::{location}"
     factor = _scenario10_get_factor(prefix, asset, scope)
-    default_primary = primary_base_pct * factor if primary_base_pct > 0 else primary_base_pct
+    default_primary = current_primary * factor if current_primary > 0 else max(current_primary, 0.0)
 
     widget_key = (
         f"{prefix}_widget_{edit_basis.lower()}_{_scenario10_slug(asset)}_market_"
         f"{_scenario10_slug(location)}"
     )
-    minimum_pct = max(0.0, primary_base_pct * 100.0)
     if widget_key not in st.session_state:
-        st.session_state[widget_key] = max(default_primary * 100.0, minimum_pct)
-    elif float(st.session_state[widget_key]) < minimum_pct:
-        st.session_state[widget_key] = minimum_pct
+        st.session_state[widget_key] = max(default_primary, 0.0) * 100.0
 
     value = st.number_input(
-        f"{location} target %",
-        min_value=float(minimum_pct),
+        f"{location} simulation %",
+        min_value=0.0,
         value=float(st.session_state[widget_key]),
         step=1.0,
         format="%.1f",
         key=widget_key,
         help=(
-            f"{location} is calculated as Σ projected numbers of Retail + VRM + DHNI "
-            "divided by Σ FY27 targets of Retail + VRM + DHNI. "
-            f"{SALES_LABEL[other_basis]} uses the same relative uplift."
+            f"{location} Current and FY27 Budget are read from FINAL. "
+            "Projected Number = simulation % × FY27 Budget."
         ),
     ) / 100.0
 
-    if primary_base_pct > 0:
-        factor = max(1.0, value / primary_base_pct)
+    if current_primary > 0:
+        factor = max(0.0, value / current_primary)
     else:
         factor = 1.0
     _scenario10_set_factor(prefix, asset, scope, factor)
-    linked = linked_base_pct * factor if linked_base_pct > 0 else value
+
+    linked = (
+        max(0.0, current_other * factor)
+        if current_other > 0 and current_primary > 0
+        else max(0.0, value)
+    )
     return value, linked, factor
-
-
-def _scenario10_distribute_retail_parent_to_locations(
-    grid: pd.DataFrame,
-    prefix: str,
-    edit_basis: str,
-    asset: str,
-    retail_target_pct: float,
-) -> Tuple[Dict[str, float], str]:
-    """
-    Two-way Retail roll-up using Projected Number / FY Target proportions.
-
-    Example: if Retail is currently 75% and the parent is edited to 90%,
-    every location's current achievement % is multiplied by 90/75 = 1.20.
-    Because every location percentage is itself Projected / Target, the
-    resulting Retail aggregate lands exactly at the edited parent percentage.
-    """
-    locations = _scenario10_retail_locations(grid)
-    if not locations:
-        return {}, "No Retail market-type split"
-
-    current_parent = _scenario10_current_pct(
-        grid, edit_basis, asset, "Retail"
-    )
-    if current_parent > 0:
-        parent_factor = max(1.0, retail_target_pct / current_parent)
-    else:
-        parent_factor = 1.0
-
-    primary_targets: Dict[str, float] = {}
-    for location in locations:
-        floor = _scenario10_current_pct(
-            grid, edit_basis, asset, "Retail", location
-        )
-        if current_parent > 0:
-            target_pct = max(floor, floor * parent_factor)
-        else:
-            target_pct = max(floor, retail_target_pct)
-
-        factor = (target_pct / floor) if floor > 0 else 1.0
-        _scenario10_set_factor(prefix, asset, f"Retail::{location}", factor)
-        primary_targets[location] = target_pct
-
-        loc_widget_key = (
-            f"{prefix}_widget_{edit_basis.lower()}_{_scenario10_slug(asset)}_retail_"
-            f"{_scenario10_slug(location)}"
-        )
-        st.session_state[loc_widget_key] = target_pct * 100.0
-        st.session_state[f"{loc_widget_key}_prev"] = target_pct
-
-    return primary_targets, "Projected number ÷ FY target"
-
-
-def _scenario10_retail_parent_from_location_factors(
-    grid: pd.DataFrame,
-    prefix: str,
-    edit_basis: str,
-    asset: str,
-) -> float:
-    fy_total = _scenario10_fy_target(grid, edit_basis, asset, "Retail")
-    if fy_total <= 0:
-        return _scenario10_current_pct(grid, edit_basis, asset, "Retail")
-    amount = 0.0
-    for location in _scenario10_retail_locations(grid):
-        fy = _scenario10_fy_target(grid, edit_basis, asset, "Retail", location)
-        floor = _scenario10_current_pct(grid, edit_basis, asset, "Retail", location)
-        factor = _scenario10_get_factor(prefix, asset, f"Retail::{location}")
-        amount += fy * _scenario10_linked_target(floor, factor, floor)
-    return amount / fy_total
-
-
-def _scenario10_retail_location_input(
-    grid: pd.DataFrame,
-    prefix: str,
-    edit_basis: str,
-    asset: str,
-    location: str,
-) -> Tuple[float, float, bool]:
-    other_basis = "GS" if edit_basis == "NS" else "NS"
-    location = _scenario10_market_bucket(location)
-    current_primary = _scenario10_current_pct(grid, edit_basis, asset, "Retail", location)
-    current_other = _scenario10_current_pct(grid, other_basis, asset, "Retail", location)
-    factor = _scenario10_get_factor(prefix, asset, f"Retail::{location}")
-    default_primary = _scenario10_linked_target(current_primary, factor, current_primary)
-
-    widget_key = (
-        f"{prefix}_widget_{edit_basis.lower()}_{_scenario10_slug(asset)}_retail_"
-        f"{_scenario10_slug(location)}"
-    )
-    if widget_key not in st.session_state:
-        st.session_state[widget_key] = default_primary * 100.0
-    prev_key = f"{widget_key}_prev"
-    previous = _num(st.session_state.get(prev_key, default_primary))
-
-    value = st.number_input(
-        f"{location} target %",
-        min_value=float(current_primary * 100.0),
-        value=float(st.session_state[widget_key]),
-        step=1.0,
-        format="%.1f",
-        key=widget_key,
-        help=(
-            "Changing this combined market bucket immediately recalculates the "
-            "Retail parent percentage."
-        ),
-    ) / 100.0
-
-    changed = previous is not None and abs(value - float(previous)) > 1e-10
-    st.session_state[prev_key] = value
-    if current_primary > 0:
-        factor = max(1.0, value / current_primary)
-    else:
-        factor = 1.0
-    _scenario10_set_factor(prefix, asset, f"Retail::{location}", factor)
-    linked = _scenario10_linked_target(current_other, factor, value)
-    return value, linked, changed
 
 
 def _scenario10_build_target_maps(
@@ -5728,11 +5881,8 @@ def _scenario10_build_target_maps(
     Dict[str, Dict[str, Dict[str, float]]],
     Dict[str, Dict[str, Dict[str, float]]],
 ]:
-    """Build linked NS/GS channel targets plus market factors and final market %."""
+    """Build channel and market simulation percentages for both NS and GS."""
     channel_targets: Dict[str, Dict[str, Dict[str, float]]] = {
-        sales: {asset: {} for asset in ASSETS} for sales in SALES_TYPES
-    }
-    market_factors: Dict[str, Dict[str, Dict[str, float]]] = {
         sales: {asset: {} for asset in ASSETS} for sales in SALES_TYPES
     }
     market_targets: Dict[str, Dict[str, Dict[str, float]]] = {
@@ -5744,48 +5894,27 @@ def _scenario10_build_target_maps(
             factor = _scenario10_get_factor(prefix, asset, channel)
             for sales in SALES_TYPES:
                 current = _scenario10_current_pct(grid, sales, asset, channel)
-                fallback = primary_channel_targets.get(asset, {}).get(channel, current)
-                channel_targets[sales][asset][channel] = _scenario10_linked_target(
-                    current, factor, fallback
-                )
+                if sales == edit_basis:
+                    value = primary_channel_targets.get(asset, {}).get(channel, current)
+                else:
+                    primary_current = _scenario10_current_pct(grid, edit_basis, asset, channel)
+                    primary_value = primary_channel_targets.get(asset, {}).get(channel, primary_current)
+                    value = (
+                        current * factor
+                        if current > 0 and primary_current > 0
+                        else primary_value
+                    )
+                channel_targets[sales][asset][channel] = max(0.0, float(value))
 
         for location in _scenario10_retail_locations(grid):
             factor = _scenario10_get_factor(prefix, asset, f"Market::{location}")
             for sales in SALES_TYPES:
-                base_pct = _scenario10_market_pct_from_channel_targets(
-                    grid, sales, asset, location, channel_targets[sales][asset]
-                )
-                market_factors[sales][asset][location] = factor
-                market_targets[sales][asset][location] = base_pct * factor
+                current = _scenario10_market_current_pct(grid, sales, asset, location)
+                market_targets[sales][asset][location] = max(0.0, current * factor if current > 0 else current)
 
-    return channel_targets, market_factors, market_targets
-
-
-def _scenario10_preview_vertical_pct(
-    grid: pd.DataFrame,
-    sales: str,
-    asset: str,
-    vertical: str,
-    vertical_targets: Dict[str, Dict[str, Dict[str, float]]],
-    market_factors: Dict[str, Dict[str, Dict[str, float]]],
-) -> float:
-    subset = _scenario10_subset(
-        grid, sales=sales, asset=asset, planning_channel=vertical
-    )
-    if subset.empty:
-        return 0.0
-    total_target = float(subset["fy_target"].sum())
-    if total_target <= 0:
-        return 0.0
-
-    amount = 0.0
-    for row in subset.to_dict("records"):
-        pct = vertical_targets.get(sales, {}).get(asset, {}).get(vertical, 0.0)
-        if vertical in S10_MARKET_CHANNELS:
-            market_type = _scenario10_market_bucket(row.get("MarketType", "Unspecified"))
-            pct *= market_factors.get(sales, {}).get(asset, {}).get(market_type, 1.0)
-        amount += _z(row.get("fy_target")) * pct
-    return amount / total_target
+    # Kept for backward-compatible function shape; Scenario 10 no longer applies
+    # market factors to channel rows because FINAL does not provide a channel × market cross-tab.
+    return channel_targets, {}, market_targets
 
 
 def _scenario10_preview_asset_pct(
@@ -5798,19 +5927,15 @@ def _scenario10_preview_asset_pct(
     subset = _scenario10_subset(grid, sales=sales, asset=asset)
     if subset.empty:
         return 0.0
-    total_target = float(subset["fy_target"].sum())
-    if total_target <= 0:
+    target_total = float(subset["fy_target"].sum())
+    if target_total == 0:
         return 0.0
-
-    amount = 0.0
+    projected = 0.0
     for row in subset.to_dict("records"):
         channel = _scenario10_management_channel(row)
         pct = vertical_targets.get(sales, {}).get(asset, {}).get(channel, 0.0)
-        if channel in S10_MARKET_CHANNELS:
-            market_type = _scenario10_market_bucket(row.get("MarketType", "Unspecified"))
-            pct *= market_factors.get(sales, {}).get(asset, {}).get(market_type, 1.0)
-        amount += _z(row.get("fy_target")) * pct
-    return amount / total_target
+        projected += _z(row.get("fy_target")) * pct
+    return projected / target_total
 
 
 def render_scenario_controls(
@@ -5956,8 +6081,9 @@ def render_scenario_controls(
 
         elif scenario_id == 10:
             if grid is None or grid.empty:
-                glass_note(
-                    "Scenario 10 needs calculation data for the planning channels.",
+                glass_callout(
+                    "<b>Scenario 10 cannot start:</b> the detailed GS/NS matrix could not be read "
+                    "from FINAL. Scenario 10 does not fall back to the RM calculation sheets.",
                     tone="warn",
                 )
                 params["asset_vertical_targets"] = {}
@@ -5972,8 +6098,8 @@ def render_scenario_controls(
                     horizontal=True,
                     key=f"{prefix}_basis_selector",
                     help=(
-                        "Edit one sales basis. The other basis changes automatically by the same "
-                        "relative uplift so the current NS/GS relationship is preserved."
+                        "Scenario 10 reads Current and FY27 Budget only from FINAL. "
+                        "Edit one basis; the other basis follows the same relative change when a positive current ratio exists."
                     ),
                 )
                 edit_basis = "NS" if edit_label == SALES_LABEL["NS"] else "GS"
@@ -5981,33 +6107,29 @@ def render_scenario_controls(
                 _scenario10_prepare_basis_switch(prefix, edit_basis)
 
                 glass_callout(
-                    "<b>Scenario 10 linked planning · EX-DIGITAL:</b> edit Retail, DHNI, VRM and Insti "
-                    "inside each Asset Class. Digital is fully excluded. T2 / T6 / T30 / B30 / EM "
-                    "are a separate combined cut of <b>Retail + VRM + DHNI</b>."
+                    "<b>Scenario 10 · FINAL-sheet simulation · EX-DIGITAL</b><br>"
+                    "Current = the YTD/current number printed in FINAL. FY27 Budget = the Target printed in FINAL. "
+                    "The app does <b>not</b> annualise YTD for this scenario."
                 )
                 glass_note(
-                    "For every channel and market bucket, achievement % is <b>Projected Number ÷ FY27 Target</b>. "
-                    "For T2/B30/T30/etc. specifically: <b>Σ projected Retail+VRM+DHNI ÷ Σ target Retail+VRM+DHNI</b>. "
-                    "Changing any parent channel changes these market percentages automatically; changing a market "
-                    "bucket applies the same uplift to Retail, VRM and DHNI rows in that bucket and therefore changes "
-                    "their parent percentages automatically."
+                    "Calculation used everywhere in Scenario 10: "
+                    "<b>Simulation Projected Number = Simulation Achievement % × FY27 Budget</b>. "
+                    "Current % = FINAL Current ÷ FINAL FY27 Budget. Digital is excluded from the roll-up."
                 )
 
                 primary_channel_targets: Dict[str, Dict[str, float]] = {}
-                linked_channel_targets: Dict[str, Dict[str, float]] = {}
                 locations = _scenario10_retail_locations(grid)
 
                 for asset in ASSETS:
                     st.markdown(
                         f"<div class='glass-panel' style='margin-top:16px'>"
-                        f"<div class='metric-label'>{escape(asset)} · channel targets</div>"
+                        f"<div class='metric-label'>{escape(asset)} · FINAL channel simulation</div>"
                         f"<div class='metric-secondary'>Editable: {escape(SALES_LABEL[edit_basis])} · "
-                        f"Linked automatically: {escape(SALES_LABEL[other_basis])}</div></div>",
+                        f"Linked: {escape(SALES_LABEL[other_basis])}</div></div>",
                         unsafe_allow_html=True,
                     )
 
                     primary_for_asset: Dict[str, float] = {}
-                    linked_for_asset: Dict[str, float] = {}
                     channel_groups = [["Retail", "DHNI", "VRM"], ["Institutional"]]
 
                     for channel_group in channel_groups:
@@ -6018,32 +6140,34 @@ def render_scenario_controls(
                                     grid, prefix, edit_basis, asset, channel
                                 )
                                 primary_for_asset[channel] = primary
-                                linked_for_asset[channel] = linked
 
-                                channel_fy = _scenario10_fy_target(
+                                current_number = _scenario10_current_number(
                                     grid, edit_basis, asset, channel
                                 )
-                                current_channel_pct = _scenario10_current_pct(
+                                budget = _scenario10_fy_target(
                                     grid, edit_basis, asset, channel
                                 )
-                                current_projected = channel_fy * current_channel_pct
+                                current_pct = _scenario10_current_pct(
+                                    grid, edit_basis, asset, channel
+                                )
+                                projected_number = budget * primary
                                 st.markdown(
                                     "<div class='glass-note'>"
-                                    f"<span class='inline-pill gold'>{escape(SALES_LABEL[edit_basis])} {escape(fmt_pct(primary))}</span>"
-                                    f"<span class='inline-pill'>{escape(SALES_LABEL[other_basis])} {escape(fmt_pct(linked))}</span>"
-                                    f"<br>Current: <b>{escape(fmt_cr(current_projected))} ÷ {escape(fmt_cr(channel_fy))} "
-                                    f"= {escape(fmt_pct(current_channel_pct))}</b> · uplift <b>{factor - 1.0:+.1%}</b>"
+                                    f"<b>FINAL Current:</b> {escape(fmt_cr(current_number))}<br>"
+                                    f"<b>FY27 Budget:</b> {escape(fmt_cr(budget))}<br>"
+                                    f"Current %: {escape(fmt_pct(current_pct))}<br>"
+                                    f"Simulation projected: <b>{escape(fmt_cr(projected_number))}</b><br>"
+                                    f"{escape(SALES_LABEL[other_basis])} linked: {escape(fmt_pct(linked))}"
                                     "</div>",
                                     unsafe_allow_html=True,
                                 )
 
                     primary_channel_targets[asset] = primary_for_asset
-                    linked_channel_targets[asset] = linked_for_asset
 
                     if locations:
                         st.markdown(
                             "<div class='metric-label' style='margin-top:14px'>"
-                            "Market type · Retail + VRM + DHNI combined</div>",
+                            "Market type · FINAL source · Retail + VRM + DHNI cut</div>",
                             unsafe_allow_html=True,
                         )
                         selected_location = st.selectbox(
@@ -6051,33 +6175,39 @@ def render_scenario_controls(
                             locations,
                             index=0,
                             key=f"{prefix}_location_select_{_scenario10_slug(asset)}",
-                            help=(
-                                "B30 includes B30 Select; T30 includes T30 Ext. "
-                                "Each bucket is calculated from Retail + VRM + DHNI combined."
-                            ),
-                        )
-
-                        primary_base_pct = _scenario10_market_pct_from_channel_targets(
-                            grid, edit_basis, asset, selected_location, primary_for_asset
-                        )
-                        linked_base_pct = _scenario10_market_pct_from_channel_targets(
-                            grid, other_basis, asset, selected_location, linked_for_asset
+                            help="B30 includes B30 Select; T30 includes T30 Ext.",
                         )
                         loc_primary, loc_linked, loc_factor = _scenario10_market_location_input(
+                            grid,
                             prefix,
                             edit_basis,
                             asset,
                             selected_location,
-                            primary_base_pct,
-                            linked_base_pct,
                         )
-                        loc_target = _scenario10_market_fy_target(
+                        loc_budget = _scenario10_market_fy_target(
                             grid, edit_basis, asset, selected_location
                         )
-                        st.caption(
-                            f"{selected_location}: {SALES_LABEL[edit_basis]} {fmt_pct(loc_primary)} · "
-                            f"{SALES_LABEL[other_basis]} {fmt_pct(loc_linked)} · "
-                            f"Σ target Retail+VRM+DHNI {fmt_cr(loc_target)} · market uplift {loc_factor - 1.0:+.1%}"
+                        loc_current = _scenario10_current_number(
+                            grid, edit_basis, asset, market_type=selected_location
+                        )
+                        loc_current_pct = _scenario10_market_current_pct(
+                            grid, edit_basis, asset, selected_location
+                        )
+                        st.markdown(
+                            "<div class='glass-note'>"
+                            f"<b>{escape(selected_location)}</b> · FINAL Current {escape(fmt_cr(loc_current))} · "
+                            f"FY27 Budget {escape(fmt_cr(loc_budget))}<br>"
+                            f"Current % {escape(fmt_pct(loc_current_pct))} · "
+                            f"Simulation {escape(fmt_pct(loc_primary))} · "
+                            f"Projected Number <b>{escape(fmt_cr(loc_budget * loc_primary))}</b><br>"
+                            f"{escape(SALES_LABEL[other_basis])} linked {escape(fmt_pct(loc_linked))}"
+                            "</div>",
+                            unsafe_allow_html=True,
+                        )
+                    else:
+                        glass_note(
+                            "T2 / T6 / T30 / B30 / EM values were not found as a repeated Target/YTD matrix in FINAL. "
+                            "Scenario 10 will not manufacture that market split from the RM sheets."
                         )
 
                 vertical_targets, market_factors, market_targets = _scenario10_build_target_maps(
@@ -6085,17 +6215,14 @@ def render_scenario_controls(
                 )
                 params["asset_vertical_targets"] = vertical_targets
                 params["market_location_factors"] = market_factors
-                # Kept under the old key too so existing exports/backward references continue to work.
                 params["retail_location_targets"] = market_targets
                 params["scenario10_edit_basis"] = edit_basis
-                params["scenario10_proportion_basis"] = (
-                    "Market % = Σ projected Retail+VRM+DHNI / Σ target Retail+VRM+DHNI"
-                )
+                params["scenario10_source"] = "FINAL only"
                 params["scenario10_excludes_digital"] = True
 
                 st.markdown(
                     "<div class='metric-secondary' style='margin-top:18px'>"
-                    "Live Asset-Class roll-up after channel and combined-market edits"
+                    "Live Equity / Debt / Liquid roll-up from FINAL budgets and the simulation percentages"
                     "</div>",
                     unsafe_allow_html=True,
                 )
@@ -6116,7 +6243,7 @@ def render_scenario_controls(
                         "delta": fmt_pts(primary_pct - current_primary),
                         "tone": _tone_for(primary_pct - current_primary),
                         "secondary": (
-                            f"{fmt_cr(projected_amount)} ÷ {fmt_cr(target_amount)} · "
+                            f"{fmt_cr(projected_amount)} projected ÷ {fmt_cr(target_amount)} budget · "
                             f"{SALES_LABEL[other_basis]} linked {fmt_pct(linked_pct)}"
                         ),
                     })
@@ -6155,7 +6282,7 @@ def _active_scenario_assumption_text(model: ScenarioModel) -> str:
         jan = next(iter(p.get('channel_jan_target', {}).values()), None)
         return f"January milestone: {fmt_pct(jan)} · March ambition: {fmt_pct(p.get('optimizer_target'))} · Leakage: {fmt_pct(p.get('leakage'))}"
     if sid == 10:
-        return "Linked NS/GS · Retail / DHNI / VRM / Insti inside each asset · Digital excluded · T2/B30/T30/etc. = Retail + VRM + DHNI combined · minimum = current projection"
+        return "FINAL-only simulation · Current = FINAL YTD · Projected Number = Simulation % × FY27 Budget · Digital excluded"
     return ""
 
 
@@ -6246,11 +6373,10 @@ def _active_scenario_copy(model: ScenarioModel) -> Dict[str, str]:
                 "the ex-Digital Asset-Class and Overall outcomes update immediately."
             ),
             "explanation": (
-                "Edit one linked sales basis for Retail, DHNI, VRM and Insti inside Equity, Debt and Liquid. "
-                "Digital is excluded from Scenario 10. T2/T6/T30/B30/EM-style buckets are calculated from "
-                "Retail + VRM + DHNI combined. Each displayed percentage is Projected Number / FY27 Target; "
-                "the opposite sales basis moves by the same relative uplift factor, and every edit rolls through run rate, "
-                "asset totals, overall achievement and Net Sales revenue automatically."
+                "Scenario 10 uses FINAL as the only source for Current and FY27 Budget. Retail, DHNI, VRM and Insti "
+                "are simulated inside Equity, Debt and Liquid while Digital is excluded. Projected Number = Simulation % × "
+                "FY27 Budget. T2/T6/T30/B30/EM are read from the FINAL market matrix when present; the opposite sales basis "
+                "follows the same relative change when a positive current ratio exists."
             ),
         }
     return {
@@ -6349,10 +6475,12 @@ def render_scenario_comparison(
     scenario_pct = _num(cell.get("march_pct"))
     delta = None if (current_pct is None or scenario_pct is None) else scenario_pct - current_pct
  
+    current_label = "Current FINAL achievement" if model.scenario_id == 10 else "Current projected FY"
+    scenario_label = "Simulation achievement" if model.scenario_id == 10 else "Scenario projected FY"
     kpi_strip([
-        {"label": "Current projected FY", "value": fmt_pct(current_pct),
+        {"label": current_label, "value": fmt_pct(current_pct),
          "secondary": fmt_cr(cell.get("current_march"))},
-        {"label": "Scenario projected FY", "value": fmt_pct(scenario_pct),
+        {"label": scenario_label, "value": fmt_pct(scenario_pct),
          "delta": fmt_pts(delta), "tone": _tone_for(delta),
          "secondary": fmt_cr(cell.get("march_amount"))},
         {"label": "Incremental sales", "value": fmt_cr_signed(cell.get("incremental_sales")),
@@ -6376,11 +6504,19 @@ def render_scenario_comparison(
     with tabs[1]:
         render_glass_table(gs_frame, gs_formats, total_rows=("Overall",), css_class="scenario-table")
  
-    glass_note(
-        "Scenario outcomes are anchored to the FINAL FY27 targets so the comparison uses one "
-        "common base. Retail, DHNI and VRM carry scenario calculations from their detailed "
-        "sheets; channels such as Insti and Digital stay visible as current FINAL metrics only."
-    )
+    if model.scenario_id == 10:
+        glass_note(
+            "Scenario 10 is FINAL-only: Current = FINAL YTD/current, FY27 Budget = FINAL Target, "
+            "and Simulation Projected Number = Simulation % × FY27 Budget. Retail, DHNI, VRM and "
+            "Insti are simulated; Digital is shown only as source/current information and is excluded "
+            "from the Scenario-10 roll-up."
+        )
+    else:
+        glass_note(
+            "Scenario outcomes are anchored to the FINAL FY27 targets so the comparison uses one "
+            "common base. Retail, DHNI and VRM carry scenario calculations from their detailed "
+            "sheets; channels such as Insti and Digital stay visible as current FINAL metrics only."
+        )
  
  
 # =============================================================================
@@ -6748,8 +6884,8 @@ def render_asset_channel_target_simulator(model: ScenarioModel) -> None:
     glass_callout(
         "<b>Scenario 10 roll-up · EX-DIGITAL:</b> Retail, DHNI, VRM and Insti are the calculation "
         "building blocks. Every displayed achievement percentage is Projected Number ÷ FY27 Target. "
-        "The same relative uplift is applied to the linked Net/Gross Sales basis, then Equity, Debt, "
-        "Liquid, Overall sales, required run rate and revenue are recalculated."
+        "Current is read directly from FINAL YTD; it is not annualised. The linked Net/Gross Sales "
+        "basis follows the same relative change where the current ratio is positive."
     )
 
     sales_tabs = st.tabs([SALES_LABEL[edit_basis], f"Linked {SALES_LABEL[linked_basis]}"])
@@ -6762,12 +6898,12 @@ def render_asset_channel_target_simulator(model: ScenarioModel) -> None:
                     delta = _num(row.get("Change vs Current"))
                     cards.append({
                         "label": str(row.get("Asset Class")),
-                        "value": fmt_pct(row.get("Scenario March %")),
+                        "value": fmt_pct(row.get("Simulation Achievement %")),
                         "delta": fmt_pts(delta),
                         "tone": _tone_for(delta),
                         "secondary": (
-                            f"current {fmt_pct(row.get('Current March %'))} · "
-                            f"RR change {fmt_pct_signed(row.get('Run Rate Change %'))}"
+                            f"FINAL current {fmt_pct(row.get('Current %'))} · "
+                            f"projected {fmt_cr(row.get('Simulation Projected Number'))}"
                         ),
                     })
                 kpi_strip(cards)
@@ -6775,7 +6911,7 @@ def render_asset_channel_target_simulator(model: ScenarioModel) -> None:
             st.markdown("<div class='metric-label' style='margin-top:16px'>Equity / Debt / Liquid roll-up</div>", unsafe_allow_html=True)
             render_glass_table(asset_frame, asset_formats, css_class="scenario-table")
 
-            st.markdown("<div class='metric-label' style='margin-top:18px'>Retail / DHNI / VRM / Digital / Insti inside each asset</div>", unsafe_allow_html=True)
+            st.markdown("<div class='metric-label' style='margin-top:18px'>Retail / DHNI / VRM / Insti inside each asset · Digital excluded</div>", unsafe_allow_html=True)
             detail_frame, detail_formats = build_scenario_10_channel_detail(model, sales)
             render_glass_table(detail_frame, detail_formats, css_class="scenario-table")
 
@@ -7206,16 +7342,25 @@ def render_command_center(records: pd.DataFrame, payload: bytes) -> None:
  
     # 05 · Scenario planning.
     scenario_id = render_scenario_navigator()
+
+    # Scenario 10 is deliberately rebuilt from FINAL only. It does not use the
+    # RM-sheet scope grid for Current, FY27 Budget or projected-number math.
+    scenario_grid = (
+        build_scenario10_final_grid(final_metrics)
+        if scenario_id == 10
+        else scoped_grid
+    )
+
     params = render_scenario_controls(
         scenario_id,
         scenario_default_params(scenario_id),
-        scoped_grid,
+        scenario_grid,
         final_metrics,
     )
     params["channel_mapping"] = st.session_state.get("channel_mapping", {})
  
     try:
-        model = ScenarioModel(scenario_id, scoped_grid, params)
+        model = ScenarioModel(scenario_id, scenario_grid, params)
     except Exception:  # pragma: no cover - defensive
         st.error("This scenario could not be calculated on the current scope. Widen the scope or "
                  "select another scenario.")
@@ -7225,13 +7370,20 @@ def render_command_center(records: pd.DataFrame, payload: bytes) -> None:
     # 06 · Selected scenario.
     render_scenario_hero(model, basis, asset)
     render_scenario_comparison(final_metrics, model, basis, asset)
-    if channel != "All" or location != "All":
+    if scenario_id == 10:
+        glass_note(
+            "Scenario 10 ignores RM-sheet Channel/Location scope filters by design. Its Current, "
+            "FY27 Budget and simulation values are read from FINAL only."
+        )
+    elif channel != "All" or location != "All":
         glass_note(
             "The scope filter applies to the RM calculation sheets. FINAL targets in the table "
             "above remain the published portfolio targets, so scenario percentages are the "
             "comparable figures while a filter is active."
         )
-    render_all_scenarios(scoped_grid, scenario_id, params, basis, asset)
+
+    if scenario_id != 10:
+        render_all_scenarios(scoped_grid, scenario_id, params, basis, asset)
  
     # 07 · Trajectory.
     render_scenario_trajectory(model, basis, asset)
@@ -7560,7 +7712,7 @@ def reset_workbook() -> None:
     ):
         st.session_state.pop(key, None)
 
-    # Scenario 10 minima depend on the workbook's current projections.
+    # Scenario 10 widget state depends on the current FINAL workbook.
     for key in list(st.session_state.keys()):
         if str(key).startswith(("s10_", "s10v2_", "s10v3_")):
             st.session_state.pop(key, None)
