@@ -7708,6 +7708,7 @@ def render_rm_segmentation_page(records: pd.DataFrame, payload: bytes) -> None:
 BON_VOYAGE_MARKETS: List[str] = ["T2", "T6", "T30", "B30", "EM"]
 BON_VOYAGE_DIVISIONS: List[str] = ["Retail", "Insti", "Digital", "VRM", "DHNI"]
 BON_VOYAGE_ASSETS: List[str] = ["Equity", "Debt", "Liquid"]
+BON_VOYAGE_DIMENSIONS: List[str] = ["Overall", "Equity", "Debt", "Liquid"]
 
 BON_VOYAGE_CUTS: Dict[str, Tuple[Optional[str], str]] = {
     "ALL": (None, "Overall"),
@@ -7721,213 +7722,149 @@ for _division in BON_VOYAGE_DIVISIONS:
 
 
 def inject_voyage_experience_css() -> None:
-    """Extra page-level styling for Bon voyage and AI Choice."""
+    """Executive ivory/gold styling for Bon voyage and AI Choice."""
     st.markdown(
         """
         <style>
-        .bv-hero {
-            position: relative;
-            overflow: hidden;
-            border: 1px solid rgba(255,255,255,.55);
-            border-radius: 26px;
-            padding: 28px 30px;
-            margin: 4px 0 20px 0;
-            background:
-                radial-gradient(circle at 8% 10%, rgba(255,232,74,.42), transparent 25%),
-                radial-gradient(circle at 92% 18%, rgba(0,255,209,.24), transparent 25%),
-                linear-gradient(130deg, #073b4c 0%, #005f73 48%, #0a9396 100%);
+        .bv-hero,
+        .ai-hero {
+            border: 1px solid #d6bb78;
+            border-radius: 20px;
+            padding: 22px 24px;
+            margin: 4px 0 18px 0;
+            background: linear-gradient(145deg, #fffdf7 0%, #f5ecd8 100%);
             box-shadow:
-                14px 14px 30px rgba(15, 46, 57, .18),
-                -10px -10px 24px rgba(255,255,255,.55);
-            color: white;
+                8px 8px 20px rgba(91, 70, 26, .08),
+                -8px -8px 20px rgba(255,255,255,.82);
         }
-        .bv-hero .eyebrow {
+        .bv-hero .eyebrow,
+        .ai-hero .eyebrow {
+            display: inline-block;
+            color: #8b6a22;
+            font-size: .70rem;
+            font-weight: 900;
+            letter-spacing: .14em;
             text-transform: uppercase;
-            letter-spacing: .18em;
-            font-size: .72rem;
-            font-weight: 900;
-            color: #ffef65;
         }
-        .bv-hero .title {
-            margin-top: 8px;
-            font-size: 2rem;
-            line-height: 1.08;
+        .bv-hero .title,
+        .ai-hero .title {
+            color: #173f3d;
+            font-size: 1.9rem;
+            line-height: 1.1;
             font-weight: 900;
-            color: white;
+            margin-top: 7px;
         }
-        .bv-hero .sub {
-            margin-top: 8px;
-            max-width: 920px;
-            font-size: .92rem;
+        .bv-hero .sub,
+        .ai-hero .sub {
+            color: #756b5a;
+            font-size: .88rem;
             line-height: 1.55;
-            color: rgba(255,255,255,.84);
+            margin-top: 7px;
+            max-width: 1000px;
         }
+
         .bv-cut-banner {
-            border: 1px solid rgba(95, 73, 19, .20);
-            border-radius: 18px;
-            padding: 14px 18px;
+            border: 1px solid #d6bb78;
+            border-radius: 14px;
+            padding: 12px 15px;
             margin: 8px 0 12px 0;
-            background:
-                linear-gradient(145deg, rgba(255,248,210,.96), rgba(255,225,82,.72));
+            background: linear-gradient(145deg, #fffaf0 0%, #f2e3bd 100%);
             box-shadow:
-                8px 8px 18px rgba(98,75,20,.10),
-                -8px -8px 18px rgba(255,255,255,.85);
+                6px 6px 14px rgba(91,70,26,.07),
+                -6px -6px 14px rgba(255,255,255,.82);
         }
         .bv-cut-banner .cut {
-            font-size: .72rem;
+            font-size: .68rem;
             letter-spacing: .12em;
             text-transform: uppercase;
-            color: #7c5711;
+            color: #8b6a22;
             font-weight: 900;
         }
         .bv-cut-banner .name {
-            margin-top: 3px;
-            font-size: 1.2rem;
+            margin-top: 2px;
+            font-size: 1.05rem;
+            color: #2f291f;
             font-weight: 900;
-            color: #2d2515;
         }
         .bv-threshold-title {
-            color: #073b4c;
+            color: #8b6a22;
             font-weight: 900;
-            font-size: .82rem;
+            font-size: .75rem;
             text-transform: uppercase;
             letter-spacing: .08em;
-            margin: 15px 0 5px 0;
-        }
-        .bv-summary {
-            background: linear-gradient(135deg, rgba(255,255,255,.72), rgba(228,255,252,.72));
-            border: 1px solid rgba(10,147,150,.20);
-            border-radius: 20px;
-            padding: 16px;
-            box-shadow:
-                inset 2px 2px 0 rgba(255,255,255,.75),
-                8px 8px 22px rgba(3, 67, 78, .08);
-        }
-        .bv-table .glass-table thead th {
-            background: linear-gradient(135deg, #075985, #0891b2) !important;
-            color: white !important;
-        }
-        .bv-table .glass-table tbody tr.total td {
-            background: #fff724 !important;
-            color: #1f2937 !important;
-            font-weight: 900 !important;
-        }
-        .bv-detail .glass-table thead th {
-            background: linear-gradient(135deg, #4c1d95, #7c3aed) !important;
-            color: white !important;
+            margin: 13px 0 5px 0;
         }
 
-        .ai-hero {
-            position: relative;
-            overflow: hidden;
-            border-radius: 30px;
-            padding: 30px;
-            margin: 4px 0 18px 0;
-            color: #fff;
-            border: 1px solid rgba(255,255,255,.55);
-            background:
-                radial-gradient(circle at 15% 20%, rgba(255,244,71,.92), transparent 18%),
-                radial-gradient(circle at 85% 22%, rgba(0,255,209,.65), transparent 22%),
-                radial-gradient(circle at 78% 85%, rgba(255,61,172,.72), transparent 22%),
-                linear-gradient(125deg, #6d28d9 0%, #d946ef 34%, #f97316 67%, #06b6d4 100%);
-            box-shadow:
-                15px 15px 32px rgba(103, 35, 122, .18),
-                -12px -12px 28px rgba(255,255,255,.72);
+        .bv-table .glass-table thead th,
+        .bv-detail .glass-table thead th,
+        .ai-table .glass-table thead th,
+        .ai-trip .glass-table thead th {
+            background: #174b49 !important;
+            color: #fffdf7 !important;
+            border-color: #d6bb78 !important;
         }
-        .ai-hero .eyebrow {
-            display: inline-block;
-            background: rgba(0,0,0,.23);
-            border: 1px solid rgba(255,255,255,.4);
-            backdrop-filter: blur(10px);
-            border-radius: 999px;
-            padding: 5px 10px;
-            font-weight: 900;
-            font-size: .70rem;
-            text-transform: uppercase;
-            letter-spacing: .15em;
-            color: #fff;
+        .bv-table .glass-table tbody tr.total td,
+        .ai-trip .glass-table tbody tr.total td {
+            background: #f2dd9a !important;
+            color: #2f291f !important;
+            font-weight: 900 !important;
         }
-        .ai-hero .title {
-            font-size: 2.35rem;
-            font-weight: 950;
-            line-height: 1.05;
-            margin-top: 12px;
-            color: #fff;
-        }
-        .ai-hero .sub {
-            max-width: 980px;
-            margin-top: 10px;
-            color: rgba(255,255,255,.92);
-            font-size: .95rem;
-            line-height: 1.55;
-        }
+
         .ai-glow-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(190px,1fr));
-            gap: 14px;
+            gap: 12px;
             margin: 10px 0 18px 0;
         }
         .ai-glow {
-            min-height: 135px;
-            padding: 16px;
-            border-radius: 22px;
-            border: 1px solid rgba(255,255,255,.58);
-            backdrop-filter: blur(18px);
+            min-height: 125px;
+            padding: 15px;
+            border-radius: 18px;
+            border: 1px solid #d6bb78;
+            background: linear-gradient(145deg, #fffdf7 0%, #f4ead2 100%);
             box-shadow:
-                10px 10px 24px rgba(57,39,98,.11),
-                -8px -8px 20px rgba(255,255,255,.80);
+                7px 7px 16px rgba(91,70,26,.07),
+                -7px -7px 16px rgba(255,255,255,.82);
+            color: #2f291f;
         }
-        .ai-glow:nth-child(5n+1) { background: linear-gradient(145deg,#fff56b,#ffd43b); }
-        .ai-glow:nth-child(5n+2) { background: linear-gradient(145deg,#77f7df,#31d7c4); }
-        .ai-glow:nth-child(5n+3) { background: linear-gradient(145deg,#ff93d2,#ff5fb2); }
-        .ai-glow:nth-child(5n+4) { background: linear-gradient(145deg,#b9a3ff,#8b5cf6); color:white; }
-        .ai-glow:nth-child(5n+5) { background: linear-gradient(145deg,#ffb66e,#ff7a18); color:white; }
         .ai-glow .label {
-            font-size: .69rem;
+            font-size: .67rem;
             font-weight: 900;
-            letter-spacing: .10em;
+            letter-spacing: .09em;
             text-transform: uppercase;
-            opacity: .72;
+            color: #8b6a22;
         }
         .ai-glow .value {
-            font-size: 1.65rem;
-            font-weight: 950;
+            font-size: 1.48rem;
+            font-weight: 900;
             margin-top: 8px;
+            color: #173f3d;
         }
         .ai-glow .mini {
             margin-top: 7px;
-            font-size: .77rem;
+            font-size: .75rem;
             line-height: 1.35;
-            opacity: .82;
+            color: #756b5a;
         }
         .ai-panel {
-            border-radius: 24px;
-            padding: 18px;
-            margin: 10px 0 15px 0;
-            background: rgba(255,255,255,.58);
-            border: 1px solid rgba(255,255,255,.78);
-            backdrop-filter: blur(20px);
+            border-radius: 18px;
+            padding: 15px;
+            margin: 9px 0 14px 0;
+            background: rgba(255,253,247,.88);
+            border: 1px solid #d6bb78;
             box-shadow:
-                10px 10px 25px rgba(60,43,102,.09),
-                -10px -10px 22px rgba(255,255,255,.80);
+                7px 7px 16px rgba(91,70,26,.06),
+                -7px -7px 16px rgba(255,255,255,.82);
         }
         .ai-panel .ttl {
-            font-weight: 950;
-            color: #3b0764;
-            font-size: 1rem;
+            font-weight: 900;
+            color: #173f3d;
+            font-size: .95rem;
         }
         .ai-panel .sub {
             margin-top: 3px;
-            color: #6b7280;
-            font-size: .78rem;
-        }
-        .ai-table .glass-table thead th {
-            background: linear-gradient(135deg,#7c3aed,#ec4899,#f97316) !important;
-            color: white !important;
-        }
-        .ai-trip .glass-table thead th {
-            background: linear-gradient(135deg,#0369a1,#06b6d4,#22c55e) !important;
-            color:white !important;
+            color: #756b5a;
+            font-size: .76rem;
         }
         </style>
         """,
@@ -8390,47 +8327,241 @@ def _bon_voyage_projected_revenue(
     return total
 
 
+
+def _bv_old_threshold_matrix(
+    rows: Sequence[str],
+    dimensions: Sequence[str],
+    key_prefix: str,
+) -> Dict[str, Dict[str, float]]:
+    """Original editable Bon voyage threshold matrix."""
+    widths = [1.25] + [1.0] * len(dimensions)
+
+    header = st.columns(widths)
+    header[0].markdown(
+        "<div class='metric-label'>Cut</div>",
+        unsafe_allow_html=True,
+    )
+    for index, dimension in enumerate(dimensions, start=1):
+        header[index].markdown(
+            f"<div class='metric-label'>{escape(dimension)} threshold</div>",
+            unsafe_allow_html=True,
+        )
+
+    thresholds: Dict[str, Dict[str, float]] = {}
+
+    for row in rows:
+        columns = st.columns(widths)
+        columns[0].markdown(
+            f"<div style='padding-top:10px;font-weight:800;color:#2f291f'>"
+            f"{escape(str(row))}</div>",
+            unsafe_allow_html=True,
+        )
+        thresholds[row] = {}
+
+        for index, dimension in enumerate(dimensions, start=1):
+            widget_key = (
+                f"{key_prefix}_{_scenario10_slug(row)}_"
+                f"{_scenario10_slug(dimension)}"
+            )
+            with columns[index]:
+                value = st.number_input(
+                    f"{row} {dimension} threshold %",
+                    min_value=0.0,
+                    value=float(st.session_state.get(widget_key, 100.0)),
+                    step=5.0,
+                    format="%.1f",
+                    key=widget_key,
+                    label_visibility="collapsed",
+                    help=(
+                        "An RM qualifies when its projected achievement "
+                        "is at or above this percentage."
+                    ),
+                )
+            thresholds[row][dimension] = float(value) / 100.0
+
+    return thresholds
+
+
+def _bv_old_metric_pair(dimension: str) -> Tuple[str, str]:
+    if dimension == "Overall":
+        return "Overall Projected %", "Overall Projected NS"
+    return f"{dimension} Projected %", f"{dimension} Projected NS"
+
+
+def _bv_old_group_output(
+    detail: pd.DataFrame,
+    row_column: str,
+    rows: Sequence[str],
+    thresholds: Dict[str, Dict[str, float]],
+    dimensions: Sequence[str],
+) -> pd.DataFrame:
+    """Original Bon voyage qualification output."""
+    output: List[Dict[str, Any]] = []
+
+    for row in rows:
+        subset = detail.loc[detail[row_column] == row].copy()
+        item: Dict[str, Any] = {row_column: row}
+
+        for dimension in dimensions:
+            threshold = thresholds.get(row, {}).get(dimension, 1.0)
+            pct_column, amount_column = _bv_old_metric_pair(dimension)
+
+            projected_pct = (
+                pd.to_numeric(
+                    subset[pct_column],
+                    errors="coerce",
+                ).fillna(0.0)
+                if not subset.empty
+                else pd.Series(dtype=float)
+            )
+            qualified = (
+                subset.loc[projected_pct >= threshold].copy()
+                if not subset.empty
+                else subset
+            )
+
+            item[f"{dimension} Threshold"] = threshold
+            item[f"{dimension} Count"] = (
+                int(qualified["_BV RM Key"].nunique())
+                if not qualified.empty else 0
+            )
+            item[f"{dimension} Amount"] = (
+                float(
+                    pd.to_numeric(
+                        qualified[amount_column],
+                        errors="coerce",
+                    ).fillna(0.0).sum()
+                )
+                if not qualified.empty else 0.0
+            )
+
+        output.append(item)
+
+    return pd.DataFrame(output)
+
+
+def _bv_old_table_formats(
+    row_column: str,
+    dimensions: Sequence[str],
+) -> Dict[str, str]:
+    formats: Dict[str, str] = {row_column: "txt"}
+    for dimension in dimensions:
+        formats[f"{dimension} Threshold"] = "pct"
+        formats[f"{dimension} Count"] = "num"
+        formats[f"{dimension} Amount"] = "cr"
+    return formats
+
+
+def _bv_old_table1_qualified(
+    detail: pd.DataFrame,
+    thresholds: Dict[str, Dict[str, float]],
+) -> pd.DataFrame:
+    """Original Table-1-qualified RM population."""
+    parts: List[pd.DataFrame] = []
+
+    for market in BON_VOYAGE_MARKETS:
+        subset = detail.loc[detail["Market Bucket"] == market].copy()
+        if subset.empty:
+            continue
+
+        threshold = thresholds.get(market, {}).get("Overall", 1.0)
+        pct = pd.to_numeric(
+            subset["Overall Projected %"],
+            errors="coerce",
+        ).fillna(0.0)
+
+        qualified = subset.loc[pct >= threshold].copy()
+        if qualified.empty:
+            continue
+
+        qualified["Threshold Applied"] = threshold
+        parts.append(qualified)
+
+    if not parts:
+        return pd.DataFrame()
+
+    return (
+        pd.concat(parts, ignore_index=True)
+        .sort_values(
+            ["Market Bucket", "Overall Projected %", "Overall Projected NS"],
+            ascending=[True, False, False],
+        )
+        .reset_index(drop=True)
+    )
+
+
+def _bv_old_final_rm_table(
+    qualified: pd.DataFrame,
+) -> Tuple[pd.DataFrame, Dict[str, str]]:
+    """Original Bon voyage qualified RM detail table."""
+    if qualified.empty:
+        return pd.DataFrame(), {}
+
+    desired = [
+        "Employee Name", "Emp Code", "ADID", "Status", "Type",
+        "ZONE", "REGION", "EM City", "MKT TYPE",
+        "Market Bucket", "Bon Voyage Division", "Threshold Applied",
+        "Overall FY Target", "Overall YTD NS", "Overall Current RR",
+        "Projection Months", "Overall Projected NS", "Overall Projected %",
+        "Equity FY Target", "Equity YTD NS", "Equity Current RR",
+        "Equity Projected NS", "Equity Projected %",
+        "Debt FY Target", "Debt YTD NS", "Debt Current RR",
+        "Debt Projected NS", "Debt Projected %",
+        "Liquid FY Target", "Liquid YTD NS", "Liquid Current RR",
+        "Liquid Projected NS", "Liquid Projected %",
+    ]
+    columns = [column for column in desired if column in qualified.columns]
+
+    formats: Dict[str, str] = {}
+    for column in columns:
+        if column in {
+            "Threshold Applied",
+            "Overall Projected %",
+            "Equity Projected %",
+            "Debt Projected %",
+            "Liquid Projected %",
+        }:
+            formats[column] = "pct"
+        elif column == "Projection Months":
+            formats[column] = "num"
+        elif any(
+            term in column
+            for term in ("FY Target", "YTD NS", "Current RR", "Projected NS")
+        ):
+            formats[column] = "cr"
+        else:
+            formats[column] = "txt"
+
+    return qualified[columns].copy(), formats
+
+
+
 def render_bon_voyage_page(
     records: pd.DataFrame,
     payload: bytes,
 ) -> None:
-    """User-friendly screenshot-style threshold simulator."""
+    """
+    Bon voyage with the original three cuts restored first,
+    followed by the newer screenshot-style location contribution cut.
+    """
     inject_voyage_experience_css()
     final_metrics = parse_final_dashboard_metrics(payload)
 
-    st.markdown(
-        """
-        <div class='bv-hero'>
-          <div class='eyebrow'>Current NS Achievement · #Employees</div>
-          <div class='title'>Bon voyage · Outperformer contribution simulator</div>
-          <div class='sub'>
-            Pick one business cut, edit the five location thresholds, and immediately see
-            how many regional managers qualify, the projected Net Sales they contribute,
-            the location-wise FY Net Sales target and the resulting contribution percentage.
-          </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
+    # Old executive header / colour language restored.
+    render_apple_header(
+        final_metrics,
+        records,
+        "FY27 · Bon voyage",
     )
 
-    controls = st.columns([1.4, 1.0, 2.3])
-    with controls[0]:
-        cut_options = list(BON_VOYAGE_CUTS.keys())
-        cut_label = st.selectbox(
-            "Select scenario cut",
-            cut_options,
-            index=cut_options.index(
-                st.session_state.get("bv_selected_cut", "RETAIL EQUITY")
-                if st.session_state.get("bv_selected_cut", "RETAIL EQUITY") in cut_options
-                else "RETAIL EQUITY"
-            ),
-            key="bv_selected_cut",
-            help=(
-                "Choose ALL or a Division × Asset cut such as RETAIL EQUITY, "
-                "DHNI DEBT, VRM LIQUID, INSTI EQUITY or DIGITAL DEBT."
-            ),
-        )
-    with controls[1]:
+    section_header(
+        "01",
+        "Bon voyage simulation",
+        "Original threshold cuts + location-wise contribution simulator",
+    )
+
+    controls_left, controls_right = st.columns([1, 2.4])
+    with controls_left:
         projection_months = int(
             st.number_input(
                 "Months to project",
@@ -8446,14 +8577,15 @@ def render_bon_voyage_page(
                 key="bv_projection_months",
                 help=(
                     "Projection = YTD Net Sales + "
-                    "(YTD Net Sales ÷ 3) × selected months."
+                    "(YTD Net Sales ÷ 3 completed months) × selected months."
                 ),
             )
         )
-    with controls[2]:
+    with controls_right:
         glass_callout(
-            "<b>Qualification basis:</b> projected achievement % for the selected "
-            "Division × Asset cut. Thresholds are location-specific and default to 100%."
+            "<b>Projection formula:</b> YTD Net Sales + "
+            "(YTD Net Sales ÷ 3) × editable months. "
+            "All thresholds default to 100% and can be edited independently."
         )
 
     detail = build_bon_voyage_rm_detail(
@@ -8461,8 +8593,216 @@ def render_bon_voyage_page(
         projection_months,
     )
     if detail.empty:
-        glass_note("No RM-level Net Sales records are available.")
+        glass_note("No RM-level Net Sales records are available for Bon voyage.")
         return
+
+    # =================================================================
+    # ORIGINAL CUT 1
+    # =================================================================
+    section_header(
+        "02",
+        "Market qualification",
+        "Original cut · T2 · T6 · T30 · B30 · EM | Overall Net Sales",
+    )
+
+    old_t1_thresholds = _bv_old_threshold_matrix(
+        BON_VOYAGE_MARKETS,
+        ["Overall"],
+        "bv_old_t1",
+    )
+    old_t1 = _bv_old_group_output(
+        detail,
+        "Market Bucket",
+        BON_VOYAGE_MARKETS,
+        old_t1_thresholds,
+        ["Overall"],
+    )
+    render_glass_table(
+        old_t1.rename(columns={"Market Bucket": "Market"}),
+        {
+            "Market": "txt",
+            "Overall Threshold": "pct",
+            "Overall Count": "num",
+            "Overall Amount": "cr",
+        },
+    )
+    glass_note(
+        "Count = RMs meeting the selected Overall projected-Net-Sales threshold. "
+        "Amount = their combined projected Overall Net Sales."
+    )
+
+    # =================================================================
+    # ORIGINAL CUT 2
+    # =================================================================
+    section_header(
+        "03",
+        "Division × Asset qualification",
+        "Original cut · Retail · Insti · Digital · VRM · DHNI",
+    )
+
+    old_t2_thresholds = _bv_old_threshold_matrix(
+        BON_VOYAGE_DIVISIONS,
+        BON_VOYAGE_DIMENSIONS,
+        "bv_old_t2",
+    )
+    old_t2 = _bv_old_group_output(
+        detail,
+        "Bon Voyage Division",
+        BON_VOYAGE_DIVISIONS,
+        old_t2_thresholds,
+        BON_VOYAGE_DIMENSIONS,
+    )
+    render_glass_table(
+        old_t2.rename(
+            columns={"Bon Voyage Division": "Division"}
+        ),
+        _bv_old_table_formats(
+            "Division",
+            BON_VOYAGE_DIMENSIONS,
+        ),
+        max_html_rows=50,
+    )
+    glass_note(
+        "Overall, Equity, Debt and Liquid qualify independently for each division."
+    )
+
+    # =================================================================
+    # ORIGINAL CUT 3
+    # =================================================================
+    section_header(
+        "04",
+        "Market × Asset qualification",
+        "Original cut · T2 · T6 · T30 · B30 · EM | Overall + Equity + Debt + Liquid",
+    )
+
+    old_t3_thresholds = _bv_old_threshold_matrix(
+        BON_VOYAGE_MARKETS,
+        BON_VOYAGE_DIMENSIONS,
+        "bv_old_t3",
+    )
+    old_t3 = _bv_old_group_output(
+        detail,
+        "Market Bucket",
+        BON_VOYAGE_MARKETS,
+        old_t3_thresholds,
+        BON_VOYAGE_DIMENSIONS,
+    )
+    render_glass_table(
+        old_t3.rename(columns={"Market Bucket": "Market"}),
+        _bv_old_table_formats(
+            "Market",
+            BON_VOYAGE_DIMENSIONS,
+        ),
+        max_html_rows=50,
+    )
+
+    # Original detail table based on original Cut 1.
+    section_header(
+        "05",
+        "Original-cut qualified RM details",
+        "Regional managers qualifying the Market Overall thresholds above",
+    )
+
+    old_qualified = _bv_old_table1_qualified(
+        detail,
+        old_t1_thresholds,
+    )
+    old_final, old_final_formats = _bv_old_final_rm_table(
+        old_qualified
+    )
+
+    if old_final.empty:
+        glass_note(
+            "No regional managers currently qualify the original Market thresholds."
+        )
+    else:
+        kpi_strip([
+            {
+                "label": "Qualified RMs",
+                "value": fmt_num(
+                    old_qualified["_BV RM Key"].nunique()
+                ),
+                "secondary": "original Market cut",
+            },
+            {
+                "label": "Projected Net Sales",
+                "value": fmt_cr(
+                    old_qualified["Overall Projected NS"].sum()
+                ),
+                "secondary": (
+                    f"YTD + current RR × {projection_months} months"
+                ),
+            },
+            {
+                "label": "Current YTD Net Sales",
+                "value": fmt_cr(
+                    old_qualified["Overall YTD NS"].sum()
+                ),
+                "secondary": "qualified population",
+            },
+            {
+                "label": "Current monthly run rate",
+                "value": fmt_cr(
+                    old_qualified["Overall Current RR"].sum()
+                ),
+                "secondary": "YTD ÷ 3",
+            },
+        ])
+
+        render_glass_table(
+            old_final,
+            old_final_formats,
+            max_html_rows=300,
+        )
+
+    # =================================================================
+    # NEW CUT — KEPT LAST
+    # =================================================================
+    section_header(
+        "06",
+        "Location-wise contribution simulator",
+        "New cut · select ALL or a Division × Asset cut, then edit T2/T6/T30/B30/EM thresholds",
+    )
+
+    st.markdown(
+        """
+        <div class='bv-hero'>
+          <div class='eyebrow'>New contribution cut</div>
+          <div class='title'>Location-wise threshold → qualified RMs → contribution</div>
+          <div class='sub'>
+            This is the newer screenshot-style cut. It is intentionally kept after
+            the original Bon voyage analyses.
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    new_controls = st.columns([1.45, 2.1])
+    with new_controls[0]:
+        cut_options = list(BON_VOYAGE_CUTS.keys())
+        current_cut = st.session_state.get(
+            "bv_selected_cut",
+            "RETAIL EQUITY",
+        )
+        if current_cut not in cut_options:
+            current_cut = "RETAIL EQUITY"
+
+        cut_label = st.selectbox(
+            "Select scenario cut",
+            cut_options,
+            index=cut_options.index(current_cut),
+            key="bv_selected_cut",
+            help=(
+                "Choose ALL or Retail/DHNI/VRM/Insti/Digital × "
+                "Equity/Debt/Liquid."
+            ),
+        )
+    with new_controls[1]:
+        glass_callout(
+            "<b>Contribution:</b> projected Net Sales of qualified RMs "
+            "÷ location-wise FY Net Sales target for the selected cut."
+        )
 
     scope, dimension, cut_name = _bon_voyage_scope_for_cut(
         detail,
@@ -8472,42 +8812,34 @@ def render_bon_voyage_page(
     st.markdown(
         f"""
         <div class='bv-cut-banner'>
-          <div class='cut'>Scenario cut</div>
+          <div class='cut'>Selected contribution cut</div>
           <div class='name'>{escape(cut_name)}</div>
         </div>
         """,
         unsafe_allow_html=True,
     )
 
-    thresholds = _bon_voyage_thresholds_for_cut(
+    new_thresholds = _bon_voyage_thresholds_for_cut(
         cut_label,
         "bv_screen",
     )
-    result, qualified = _bon_voyage_location_results(
+    new_result, new_qualified = _bon_voyage_location_results(
         scope,
         dimension,
-        thresholds,
+        new_thresholds,
     )
 
-    section_header(
-        "01",
-        "Location-wise threshold contribution",
-        (
-            "Employees → editable threshold → qualified RMs → projected NS contribution "
-            "→ location-wise NS target → contribution"
-        ),
-    )
     render_glass_table(
-        result,
+        new_result,
         _bon_voyage_location_formats(dimension),
         total_rows=("OVERALL",),
         css_class="bv-table",
     )
 
-    overall = result.iloc[0]
+    overall = new_result.iloc[0]
     kpi_strip([
         {
-            "label": "Employees in selected cut",
+            "label": "Employees",
             "value": fmt_num(overall.get("Employees")),
             "secondary": cut_name,
         },
@@ -8522,53 +8854,55 @@ def render_bon_voyage_page(
             "secondary": f"projected {dimension} NS",
         },
         {
-            "label": "Selected-cut target",
+            "label": "Location-wise target",
             "value": fmt_cr(
-                overall.get(f"Location-wise {dimension} NS Target")
+                overall.get(
+                    f"Location-wise {dimension} NS Target"
+                )
             ),
             "secondary": f"{dimension} FY NS target",
         },
         {
             "label": "Contribution",
             "value": fmt_pct(overall.get("Contribution")),
-            "secondary": "qualified projected NS ÷ target",
+            "secondary": "qualified NS ÷ location target",
         },
     ])
 
-    section_header(
-        "02",
-        "Qualified regional managers",
-        f"RM detail for {cut_name} using the five thresholds above",
+    st.markdown(
+        "<div class='subsection-title'>Qualified RM details · selected new cut</div>",
+        unsafe_allow_html=True,
     )
-    detail_table, detail_formats = _bon_voyage_rm_detail_table(
-        qualified,
+    new_detail_table, new_detail_formats = _bon_voyage_rm_detail_table(
+        new_qualified,
         dimension,
     )
     render_glass_table(
-        detail_table,
-        detail_formats,
+        new_detail_table,
+        new_detail_formats,
         max_html_rows=350,
         css_class="bv-detail",
         empty_message=(
-            "No regional managers qualify for the current thresholds."
+            "No regional managers qualify for the current new-cut thresholds."
         ),
     )
 
-    if not detail_table.empty:
+    if not new_detail_table.empty:
         st.download_button(
-            "Download this qualified RM cut",
-            data=detail_table.to_csv(index=False).encode("utf-8-sig"),
+            "Download selected new-cut qualified RMs",
+            data=new_detail_table.to_csv(
+                index=False
+            ).encode("utf-8-sig"),
             file_name=(
-                f"bon_voyage_{_scenario10_slug(cut_label)}_qualified.csv"
+                f"bon_voyage_"
+                f"{_scenario10_slug(cut_label)}_qualified.csv"
             ),
             mime="text/csv",
             key="bv_download_current_cut",
         )
 
     glass_note(
-        "B30 Select is combined into B30 and T30 Ext is combined into T30. "
-        "Contribution = projected Net Sales of qualified RMs ÷ the location-wise "
-        "Net Sales FY target for the selected cut."
+        "B30 Select is combined into B30 and T30 Ext is combined into T30."
     )
 
 
