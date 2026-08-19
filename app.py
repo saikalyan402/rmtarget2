@@ -7170,7 +7170,7 @@ def render_sidebar(records: pd.DataFrame) -> Tuple[str, Dict[str, Any], Dict[str
     sidebar.markdown("<div class='sidebar-title'>View</div>", unsafe_allow_html=True)
     page = sidebar.radio(
         "View",
-        ["Executive command center", "RM performance", "Bon voyage"],
+        ["Executive command center", "RM performance", "Bon voyage", "AI Choice"],
         index=0,
         key="application_page_selector",
         label_visibility="collapsed",
@@ -7702,16 +7702,240 @@ def render_rm_segmentation_page(records: pd.DataFrame, payload: bytes) -> None:
  
 
 # =============================================================================
-# 23A. BON VOYAGE - RM THRESHOLD & RUN-RATE SIMULATION
+# 23A. BON VOYAGE + AI CHOICE
 # =============================================================================
 
 BON_VOYAGE_MARKETS: List[str] = ["T2", "T6", "T30", "B30", "EM"]
 BON_VOYAGE_DIVISIONS: List[str] = ["Retail", "Insti", "Digital", "VRM", "DHNI"]
-BON_VOYAGE_DIMENSIONS: List[str] = ["Overall", "Equity", "Debt", "Liquid"]
+BON_VOYAGE_ASSETS: List[str] = ["Equity", "Debt", "Liquid"]
+
+BON_VOYAGE_CUTS: Dict[str, Tuple[Optional[str], str]] = {
+    "ALL": (None, "Overall"),
+}
+for _division in BON_VOYAGE_DIVISIONS:
+    for _asset in BON_VOYAGE_ASSETS:
+        BON_VOYAGE_CUTS[f"{_division.upper()} {_asset.upper()}"] = (
+            _division,
+            _asset,
+        )
+
+
+def inject_voyage_experience_css() -> None:
+    """Extra page-level styling for Bon voyage and AI Choice."""
+    st.markdown(
+        """
+        <style>
+        .bv-hero {
+            position: relative;
+            overflow: hidden;
+            border: 1px solid rgba(255,255,255,.55);
+            border-radius: 26px;
+            padding: 28px 30px;
+            margin: 4px 0 20px 0;
+            background:
+                radial-gradient(circle at 8% 10%, rgba(255,232,74,.42), transparent 25%),
+                radial-gradient(circle at 92% 18%, rgba(0,255,209,.24), transparent 25%),
+                linear-gradient(130deg, #073b4c 0%, #005f73 48%, #0a9396 100%);
+            box-shadow:
+                14px 14px 30px rgba(15, 46, 57, .18),
+                -10px -10px 24px rgba(255,255,255,.55);
+            color: white;
+        }
+        .bv-hero .eyebrow {
+            text-transform: uppercase;
+            letter-spacing: .18em;
+            font-size: .72rem;
+            font-weight: 900;
+            color: #ffef65;
+        }
+        .bv-hero .title {
+            margin-top: 8px;
+            font-size: 2rem;
+            line-height: 1.08;
+            font-weight: 900;
+            color: white;
+        }
+        .bv-hero .sub {
+            margin-top: 8px;
+            max-width: 920px;
+            font-size: .92rem;
+            line-height: 1.55;
+            color: rgba(255,255,255,.84);
+        }
+        .bv-cut-banner {
+            border: 1px solid rgba(95, 73, 19, .20);
+            border-radius: 18px;
+            padding: 14px 18px;
+            margin: 8px 0 12px 0;
+            background:
+                linear-gradient(145deg, rgba(255,248,210,.96), rgba(255,225,82,.72));
+            box-shadow:
+                8px 8px 18px rgba(98,75,20,.10),
+                -8px -8px 18px rgba(255,255,255,.85);
+        }
+        .bv-cut-banner .cut {
+            font-size: .72rem;
+            letter-spacing: .12em;
+            text-transform: uppercase;
+            color: #7c5711;
+            font-weight: 900;
+        }
+        .bv-cut-banner .name {
+            margin-top: 3px;
+            font-size: 1.2rem;
+            font-weight: 900;
+            color: #2d2515;
+        }
+        .bv-threshold-title {
+            color: #073b4c;
+            font-weight: 900;
+            font-size: .82rem;
+            text-transform: uppercase;
+            letter-spacing: .08em;
+            margin: 15px 0 5px 0;
+        }
+        .bv-summary {
+            background: linear-gradient(135deg, rgba(255,255,255,.72), rgba(228,255,252,.72));
+            border: 1px solid rgba(10,147,150,.20);
+            border-radius: 20px;
+            padding: 16px;
+            box-shadow:
+                inset 2px 2px 0 rgba(255,255,255,.75),
+                8px 8px 22px rgba(3, 67, 78, .08);
+        }
+        .bv-table .glass-table thead th {
+            background: linear-gradient(135deg, #075985, #0891b2) !important;
+            color: white !important;
+        }
+        .bv-table .glass-table tbody tr.total td {
+            background: #fff724 !important;
+            color: #1f2937 !important;
+            font-weight: 900 !important;
+        }
+        .bv-detail .glass-table thead th {
+            background: linear-gradient(135deg, #4c1d95, #7c3aed) !important;
+            color: white !important;
+        }
+
+        .ai-hero {
+            position: relative;
+            overflow: hidden;
+            border-radius: 30px;
+            padding: 30px;
+            margin: 4px 0 18px 0;
+            color: #fff;
+            border: 1px solid rgba(255,255,255,.55);
+            background:
+                radial-gradient(circle at 15% 20%, rgba(255,244,71,.92), transparent 18%),
+                radial-gradient(circle at 85% 22%, rgba(0,255,209,.65), transparent 22%),
+                radial-gradient(circle at 78% 85%, rgba(255,61,172,.72), transparent 22%),
+                linear-gradient(125deg, #6d28d9 0%, #d946ef 34%, #f97316 67%, #06b6d4 100%);
+            box-shadow:
+                15px 15px 32px rgba(103, 35, 122, .18),
+                -12px -12px 28px rgba(255,255,255,.72);
+        }
+        .ai-hero .eyebrow {
+            display: inline-block;
+            background: rgba(0,0,0,.23);
+            border: 1px solid rgba(255,255,255,.4);
+            backdrop-filter: blur(10px);
+            border-radius: 999px;
+            padding: 5px 10px;
+            font-weight: 900;
+            font-size: .70rem;
+            text-transform: uppercase;
+            letter-spacing: .15em;
+            color: #fff;
+        }
+        .ai-hero .title {
+            font-size: 2.35rem;
+            font-weight: 950;
+            line-height: 1.05;
+            margin-top: 12px;
+            color: #fff;
+        }
+        .ai-hero .sub {
+            max-width: 980px;
+            margin-top: 10px;
+            color: rgba(255,255,255,.92);
+            font-size: .95rem;
+            line-height: 1.55;
+        }
+        .ai-glow-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(190px,1fr));
+            gap: 14px;
+            margin: 10px 0 18px 0;
+        }
+        .ai-glow {
+            min-height: 135px;
+            padding: 16px;
+            border-radius: 22px;
+            border: 1px solid rgba(255,255,255,.58);
+            backdrop-filter: blur(18px);
+            box-shadow:
+                10px 10px 24px rgba(57,39,98,.11),
+                -8px -8px 20px rgba(255,255,255,.80);
+        }
+        .ai-glow:nth-child(5n+1) { background: linear-gradient(145deg,#fff56b,#ffd43b); }
+        .ai-glow:nth-child(5n+2) { background: linear-gradient(145deg,#77f7df,#31d7c4); }
+        .ai-glow:nth-child(5n+3) { background: linear-gradient(145deg,#ff93d2,#ff5fb2); }
+        .ai-glow:nth-child(5n+4) { background: linear-gradient(145deg,#b9a3ff,#8b5cf6); color:white; }
+        .ai-glow:nth-child(5n+5) { background: linear-gradient(145deg,#ffb66e,#ff7a18); color:white; }
+        .ai-glow .label {
+            font-size: .69rem;
+            font-weight: 900;
+            letter-spacing: .10em;
+            text-transform: uppercase;
+            opacity: .72;
+        }
+        .ai-glow .value {
+            font-size: 1.65rem;
+            font-weight: 950;
+            margin-top: 8px;
+        }
+        .ai-glow .mini {
+            margin-top: 7px;
+            font-size: .77rem;
+            line-height: 1.35;
+            opacity: .82;
+        }
+        .ai-panel {
+            border-radius: 24px;
+            padding: 18px;
+            margin: 10px 0 15px 0;
+            background: rgba(255,255,255,.58);
+            border: 1px solid rgba(255,255,255,.78);
+            backdrop-filter: blur(20px);
+            box-shadow:
+                10px 10px 25px rgba(60,43,102,.09),
+                -10px -10px 22px rgba(255,255,255,.80);
+        }
+        .ai-panel .ttl {
+            font-weight: 950;
+            color: #3b0764;
+            font-size: 1rem;
+        }
+        .ai-panel .sub {
+            margin-top: 3px;
+            color: #6b7280;
+            font-size: .78rem;
+        }
+        .ai-table .glass-table thead th {
+            background: linear-gradient(135deg,#7c3aed,#ec4899,#f97316) !important;
+            color: white !important;
+        }
+        .ai-trip .glass-table thead th {
+            background: linear-gradient(135deg,#0369a1,#06b6d4,#22c55e) !important;
+            color:white !important;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 def _bon_voyage_first_nonempty(series: pd.Series) -> str:
-    """First usable text value from duplicate RM rows."""
     for value in series:
         value = "" if value is None else str(value).strip()
         if value and value.casefold() not in {"nan", "none"}:
@@ -7720,13 +7944,6 @@ def _bon_voyage_first_nonempty(series: pd.Series) -> str:
 
 
 def _bon_voyage_rm_key(frame: pd.DataFrame) -> pd.Series:
-    """
-    Stable RM identity.
-
-    Prefer ADID, then Employee Code, then Employee Name. The fallback includes
-    the original row index so two unnamed employees are never accidentally
-    merged together.
-    """
     adid = text_column(frame, "ADID")
     emp_code = text_column(frame, "Emp Code")
     name = text_column(frame, "Employee Name")
@@ -7745,12 +7962,6 @@ def _bon_voyage_rm_key(frame: pd.DataFrame) -> pd.Series:
 
 
 def _bon_voyage_division(row: pd.Series) -> str:
-    """
-    Management division used on the Bon voyage page.
-
-    Digital / Institutional mappings take priority. The three dedicated RM
-    sheets then provide the safe fallback for Retail, DHNI and VRM.
-    """
     channel = str(row.get("Channel", "")).strip().casefold()
     vertical = str(row.get("Vertical", "")).strip().casefold()
 
@@ -7766,7 +7977,6 @@ def _bon_voyage_division(row: pd.Series) -> str:
 
 
 def _bon_voyage_market(value: Any) -> str:
-    """Use the same B30/T30 consolidation already used in Scenario 10."""
     return _scenario10_market_bucket(value)
 
 
@@ -7775,14 +7985,10 @@ def build_bon_voyage_rm_detail(
     projection_months: int,
 ) -> pd.DataFrame:
     """
-    Build one analytical row per RM for Net Sales.
+    RM-level Net Sales projection used by Bon voyage and AI Choice.
 
-    Formula:
-        current run rate = YTD Net Sales / 3
-        projected NS = YTD Net Sales + current run rate * editable months
-        projected achievement % = projected NS / FY target
-
-    All calculations are performed at Overall, Equity, Debt and Liquid level.
+    Run Rate = YTD Net Sales / 3 completed months
+    Projection = YTD Net Sales + Run Rate × editable remaining months
     """
     if records is None or records.empty:
         return pd.DataFrame()
@@ -7796,16 +8002,15 @@ def build_bon_voyage_rm_detail(
     else:
         work["Market Bucket"] = "Unspecified"
 
-    # Ensure every required Net Sales source column exists.
     for asset in ASSETS:
         for role in ("fy", "ach"):
             column = f"NS_{asset}_{role}"
             if column not in work.columns:
                 work[column] = 0.0
-            work[column] = pd.to_numeric(work[column], errors="coerce").fillna(0.0)
+            work[column] = pd.to_numeric(
+                work[column], errors="coerce"
+            ).fillna(0.0)
 
-    # Consolidate duplicate occurrences of the same RM inside the same management
-    # division / market bucket while preserving the sheet metadata.
     metadata = [
         column
         for column in [
@@ -7833,10 +8038,13 @@ def build_bon_voyage_rm_detail(
 
     months = max(int(projection_months), 0)
 
-    # Asset-class calculations.
     for asset in ASSETS:
-        target = pd.to_numeric(grouped[f"NS_{asset}_fy"], errors="coerce").fillna(0.0)
-        ytd = pd.to_numeric(grouped[f"NS_{asset}_ach"], errors="coerce").fillna(0.0)
+        target = pd.to_numeric(
+            grouped[f"NS_{asset}_fy"], errors="coerce"
+        ).fillna(0.0)
+        ytd = pd.to_numeric(
+            grouped[f"NS_{asset}_ach"], errors="coerce"
+        ).fillna(0.0)
         rr = ytd / max(MONTHS_COMPLETED, 1)
         projection = ytd + rr * months
 
@@ -7850,7 +8058,6 @@ def build_bon_voyage_rm_detail(
             0.0,
         )
 
-    # Overall = Equity + Debt + Liquid.
     grouped["Overall FY Target"] = sum(
         grouped[f"{asset} FY Target"] for asset in ASSETS
     )
@@ -7874,206 +8081,287 @@ def build_bon_voyage_rm_detail(
     return grouped
 
 
-def _bon_voyage_threshold_matrix(
-    rows: Sequence[str],
-    dimensions: Sequence[str],
+def _bon_voyage_collapse_all_divisions(detail: pd.DataFrame) -> pd.DataFrame:
+    """One RM × market row across all management divisions."""
+    if detail.empty:
+        return detail.copy()
+
+    metadata = [
+        column
+        for column in [
+            "Employee Name", "Emp Code", "ADID", "Status", "Type",
+            "ZONE", "REGION", "EM City", "MKT TYPE",
+        ]
+        if column in detail.columns
+    ]
+    aggregations: Dict[str, Any] = {
+        column: _bon_voyage_first_nonempty for column in metadata
+    }
+
+    for dimension in ["Overall", *ASSETS]:
+        for suffix in ("FY Target", "YTD NS", "Current RR", "Projected NS"):
+            aggregations[f"{dimension} {suffix}"] = "sum"
+
+    result = (
+        detail.groupby(
+            ["_BV RM Key", "Market Bucket"],
+            dropna=False,
+            as_index=False,
+        )
+        .agg(aggregations)
+    )
+    result["Bon Voyage Division"] = "All"
+
+    for dimension in ["Overall", *ASSETS]:
+        target = pd.to_numeric(
+            result[f"{dimension} FY Target"], errors="coerce"
+        ).fillna(0.0)
+        projected = pd.to_numeric(
+            result[f"{dimension} Projected NS"], errors="coerce"
+        ).fillna(0.0)
+        result[f"{dimension} Projected %"] = np.where(
+            target > 0,
+            projected / target,
+            0.0,
+        )
+
+    result["Projection Months"] = (
+        int(detail["Projection Months"].iloc[0])
+        if "Projection Months" in detail.columns and not detail.empty
+        else MONTHS_REMAINING
+    )
+    return result
+
+
+def _bon_voyage_cut_definition(
+    label: str,
+) -> Tuple[Optional[str], str]:
+    return BON_VOYAGE_CUTS.get(label, (None, "Overall"))
+
+
+def _bon_voyage_scope_for_cut(
+    detail: pd.DataFrame,
+    cut_label: str,
+) -> Tuple[pd.DataFrame, str, str]:
+    division, dimension = _bon_voyage_cut_definition(cut_label)
+
+    if division is None:
+        scope = _bon_voyage_collapse_all_divisions(detail)
+        cut_name = "All employees · Overall Net Sales"
+    else:
+        scope = detail.loc[
+            detail["Bon Voyage Division"] == division
+        ].copy()
+        cut_name = f"{division} · {dimension} Net Sales"
+
+    return scope, dimension, cut_name
+
+
+def _bon_voyage_metric_columns(
+    dimension: str,
+) -> Tuple[str, str, str, str]:
+    return (
+        f"{dimension} FY Target",
+        f"{dimension} YTD NS",
+        f"{dimension} Current RR",
+        f"{dimension} Projected NS",
+    )
+
+
+def _bon_voyage_thresholds_for_cut(
+    cut_label: str,
     key_prefix: str,
-) -> Dict[str, Dict[str, float]]:
-    """
-    Editable threshold matrix.
-
-    Thresholds are entered as percentage points in the UI and returned as
-    fractions to the calculation layer. Every cell defaults to 100%.
-    """
-    widths = [1.25] + [1.0] * len(dimensions)
-
-    header = st.columns(widths)
-    header[0].markdown(
-        "<div class='metric-label'>Cut</div>",
+) -> Dict[str, float]:
+    thresholds: Dict[str, float] = {}
+    st.markdown(
+        "<div class='bv-threshold-title'>Edit location thresholds</div>",
         unsafe_allow_html=True,
     )
-    for index, dimension in enumerate(dimensions, start=1):
-        header[index].markdown(
-            f"<div class='metric-label'>{escape(dimension)} threshold</div>",
-            unsafe_allow_html=True,
+    columns = st.columns(len(BON_VOYAGE_MARKETS))
+
+    for index, market in enumerate(BON_VOYAGE_MARKETS):
+        key = (
+            f"{key_prefix}_{_scenario10_slug(cut_label)}_"
+            f"{_scenario10_slug(market)}"
         )
-
-    thresholds: Dict[str, Dict[str, float]] = {}
-
-    for row in rows:
-        columns = st.columns(widths)
-        columns[0].markdown(
-            f"<div style='padding-top:10px;font-weight:750;color:#2f291f'>"
-            f"{escape(str(row))}</div>",
-            unsafe_allow_html=True,
-        )
-        thresholds[row] = {}
-
-        for index, dimension in enumerate(dimensions, start=1):
-            widget_key = (
-                f"{key_prefix}_{_scenario10_slug(row)}_"
-                f"{_scenario10_slug(dimension)}"
+        with columns[index]:
+            value = st.number_input(
+                f"{market} threshold %",
+                min_value=0.0,
+                value=float(st.session_state.get(key, 100.0)),
+                step=5.0,
+                format="%.1f",
+                key=key,
+                help=(
+                    "RM qualifies when its projected achievement for the "
+                    "selected cut reaches this threshold."
+                ),
             )
-            with columns[index]:
-                value = st.number_input(
-                    f"{row} {dimension} threshold %",
-                    min_value=0.0,
-                    value=float(st.session_state.get(widget_key, 100.0)),
-                    step=5.0,
-                    format="%.1f",
-                    key=widget_key,
-                    label_visibility="collapsed",
-                    help="An RM qualifies when its projected achievement is at or above this percentage.",
-                )
-            thresholds[row][dimension] = float(value) / 100.0
-
+        thresholds[market] = float(value) / 100.0
     return thresholds
 
 
-def _bon_voyage_metric_columns(dimension: str) -> Tuple[str, str]:
-    if dimension == "Overall":
-        return "Overall Projected %", "Overall Projected NS"
-    return f"{dimension} Projected %", f"{dimension} Projected NS"
+def _bon_voyage_location_results(
+    scope: pd.DataFrame,
+    dimension: str,
+    thresholds: Dict[str, float],
+) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    """Screenshot-style location result and the qualified RM population."""
+    target_col, _, _, projection_col = _bon_voyage_metric_columns(dimension)
+    pct_col = f"{dimension} Projected %"
 
+    rows: List[Dict[str, Any]] = []
+    qualified_parts: List[pd.DataFrame] = []
 
-def _bon_voyage_group_output(
-    detail: pd.DataFrame,
-    row_column: str,
-    rows: Sequence[str],
-    thresholds: Dict[str, Dict[str, float]],
-    dimensions: Sequence[str],
-) -> pd.DataFrame:
-    """
-    Qualification output for a division / market matrix.
-
-    Each dimension qualifies independently. This means an RM can qualify Equity
-    while not qualifying Debt, which keeps the asset-class analysis transparent.
-    """
-    output: List[Dict[str, Any]] = []
-
-    for row in rows:
-        subset = detail.loc[detail[row_column] == row].copy()
-        item: Dict[str, Any] = {row_column: row}
-
-        for dimension in dimensions:
-            threshold = thresholds.get(row, {}).get(dimension, 1.0)
-            pct_column, amount_column = _bon_voyage_metric_columns(dimension)
-
-            if subset.empty:
-                qualified = subset
-            else:
-                projected_pct = pd.to_numeric(
-                    subset[pct_column],
-                    errors="coerce",
-                ).fillna(0.0)
-                qualified = subset.loc[projected_pct >= threshold].copy()
-
-            item[f"{dimension} Threshold"] = threshold
-            item[f"{dimension} Count"] = (
-                int(qualified["_BV RM Key"].nunique())
-                if not qualified.empty
-                else 0
-            )
-            item[f"{dimension} Amount"] = (
-                float(
-                    pd.to_numeric(
-                        qualified[amount_column],
-                        errors="coerce",
-                    ).fillna(0.0).sum()
-                )
-                if not qualified.empty
-                else 0.0
-            )
-
-        output.append(item)
-
-    return pd.DataFrame(output)
-
-
-def _bon_voyage_table_formats(
-    row_column: str,
-    dimensions: Sequence[str],
-) -> Dict[str, str]:
-    formats: Dict[str, str] = {row_column: "txt"}
-    for dimension in dimensions:
-        formats[f"{dimension} Threshold"] = "pct"
-        formats[f"{dimension} Count"] = "num"
-        formats[f"{dimension} Amount"] = "cr"
-    return formats
-
-
-def _bon_voyage_table1_qualified(
-    detail: pd.DataFrame,
-    thresholds: Dict[str, Dict[str, float]],
-) -> pd.DataFrame:
-    """All RMs qualifying the Table-1 market Overall thresholds."""
-    rows: List[pd.DataFrame] = []
+    total_population_keys: set = set()
+    total_qualified_keys: set = set()
+    total_amount = 0.0
+    total_target = 0.0
 
     for market in BON_VOYAGE_MARKETS:
-        subset = detail.loc[detail["Market Bucket"] == market].copy()
-        if subset.empty:
-            continue
+        subset = scope.loc[
+            scope["Market Bucket"] == market
+        ].copy()
 
-        threshold = thresholds.get(market, {}).get("Overall", 1.0)
+        threshold = thresholds.get(market, 1.0)
         projected_pct = pd.to_numeric(
-            subset["Overall Projected %"],
-            errors="coerce",
+            subset[pct_col], errors="coerce"
         ).fillna(0.0)
+        qualified = subset.loc[
+            projected_pct >= threshold
+        ].copy()
 
-        qualified = subset.loc[projected_pct >= threshold].copy()
-        if qualified.empty:
-            continue
+        if not qualified.empty:
+            qualified["Threshold Applied"] = threshold
+            qualified_parts.append(qualified)
 
-        qualified["Threshold Applied"] = threshold
-        rows.append(qualified)
+        population = int(subset["_BV RM Key"].nunique()) if not subset.empty else 0
+        qualified_count = (
+            int(qualified["_BV RM Key"].nunique())
+            if not qualified.empty else 0
+        )
+        amount = (
+            float(
+                pd.to_numeric(
+                    qualified[projection_col], errors="coerce"
+                ).fillna(0.0).sum()
+            )
+            if not qualified.empty else 0.0
+        )
+        location_target = (
+            float(
+                pd.to_numeric(
+                    subset[target_col], errors="coerce"
+                ).fillna(0.0).sum()
+            )
+            if not subset.empty else 0.0
+        )
+        contribution = (
+            amount / location_target
+            if location_target != 0 else 0.0
+        )
 
-    if not rows:
-        return pd.DataFrame()
+        if not subset.empty:
+            total_population_keys.update(
+                subset["_BV RM Key"].astype(str).tolist()
+            )
+        if not qualified.empty:
+            total_qualified_keys.update(
+                qualified["_BV RM Key"].astype(str).tolist()
+            )
 
-    result = pd.concat(rows, ignore_index=True)
-    return result.sort_values(
-        ["Market Bucket", "Overall Projected %", "Overall Projected NS"],
-        ascending=[True, False, False],
-    ).reset_index(drop=True)
+        total_amount += amount
+        total_target += location_target
+
+        rows.append({
+            "Location": market,
+            "Employees": population,
+            "Threshold": threshold,
+            "Qualified RMs": qualified_count,
+            "NS Contribution": amount,
+            f"Location-wise {dimension} NS Target": location_target,
+            "Contribution": contribution,
+        })
+
+    overall = {
+        "Location": "OVERALL",
+        "Employees": len(total_population_keys),
+        "Threshold": None,
+        "Qualified RMs": len(total_qualified_keys),
+        "NS Contribution": total_amount,
+        f"Location-wise {dimension} NS Target": total_target,
+        "Contribution": (
+            total_amount / total_target
+            if total_target != 0 else 0.0
+        ),
+    }
+
+    result = pd.DataFrame([overall, *rows])
+    qualified_all = (
+        pd.concat(qualified_parts, ignore_index=True)
+        if qualified_parts else pd.DataFrame()
+    )
+    return result, qualified_all
 
 
-def _bon_voyage_final_rm_table(
+def _bon_voyage_location_formats(
+    dimension: str,
+) -> Dict[str, str]:
+    return {
+        "Location": "txt",
+        "Employees": "num",
+        "Threshold": "pct",
+        "Qualified RMs": "num",
+        "NS Contribution": "cr",
+        f"Location-wise {dimension} NS Target": "cr",
+        "Contribution": "pct",
+    }
+
+
+def _bon_voyage_rm_detail_table(
     qualified: pd.DataFrame,
+    selected_dimension: str,
 ) -> Tuple[pd.DataFrame, Dict[str, str]]:
-    """Management-friendly final RM detail table based on Table 1 qualifiers."""
     if qualified.empty:
         return pd.DataFrame(), {}
 
-    desired = [
-        "Employee Name", "Emp Code", "ADID", "Status", "Type",
-        "ZONE", "REGION", "EM City", "MKT TYPE",
-        "Market Bucket", "Bon Voyage Division", "Threshold Applied",
-        "Overall FY Target", "Overall YTD NS", "Overall Current RR",
-        "Projection Months", "Overall Projected NS", "Overall Projected %",
-        "Equity FY Target", "Equity YTD NS", "Equity Current RR",
-        "Equity Projected NS", "Equity Projected %",
-        "Debt FY Target", "Debt YTD NS", "Debt Current RR",
-        "Debt Projected NS", "Debt Projected %",
-        "Liquid FY Target", "Liquid YTD NS", "Liquid Current RR",
-        "Liquid Projected NS", "Liquid Projected %",
+    columns = [
+        column
+        for column in [
+            "Employee Name", "Emp Code", "ADID", "Status", "Type",
+            "ZONE", "REGION", "EM City", "MKT TYPE", "Market Bucket",
+            "Bon Voyage Division", "Threshold Applied",
+            f"{selected_dimension} FY Target",
+            f"{selected_dimension} YTD NS",
+            f"{selected_dimension} Current RR",
+            f"{selected_dimension} Projected NS",
+            f"{selected_dimension} Projected %",
+            "Overall FY Target", "Overall YTD NS",
+            "Overall Current RR", "Overall Projected NS",
+            "Overall Projected %",
+            "Equity Projected NS", "Equity Projected %",
+            "Debt Projected NS", "Debt Projected %",
+            "Liquid Projected NS", "Liquid Projected %",
+        ]
+        if column in qualified.columns
     ]
-    columns = [column for column in desired if column in qualified.columns]
 
     formats: Dict[str, str] = {}
     for column in columns:
         if column in {
             "Threshold Applied",
+            f"{selected_dimension} Projected %",
             "Overall Projected %",
             "Equity Projected %",
             "Debt Projected %",
             "Liquid Projected %",
         }:
             formats[column] = "pct"
-        elif column == "Projection Months":
-            formats[column] = "num"
         elif any(
-            term in column
-            for term in ("FY Target", "YTD NS", "Current RR", "Projected NS")
+            phrase in column
+            for phrase in (
+                "FY Target", "YTD NS", "Current RR", "Projected NS"
+            )
         ):
             formats[column] = "cr"
         else:
@@ -8082,227 +8370,876 @@ def _bon_voyage_final_rm_table(
     return qualified[columns].copy(), formats
 
 
+def _bon_voyage_projected_revenue(
+    frame: pd.DataFrame,
+) -> float:
+    if frame is None or frame.empty:
+        return 0.0
+
+    total = 0.0
+    for asset in ASSETS:
+        column = f"{asset} Projected NS"
+        if column not in frame.columns:
+            continue
+        amount = float(
+            pd.to_numeric(
+                frame[column], errors="coerce"
+            ).fillna(0.0).sum()
+        )
+        total += amount * REVENUE_RATE.get(asset, 0.0)
+    return total
+
+
 def render_bon_voyage_page(
     records: pd.DataFrame,
     payload: bytes,
 ) -> None:
-    """
-    Bon voyage simulation page.
-
-    Table 1:
-      T2/T6/T30/B30/EM -> editable Overall threshold -> qualified RM count /
-      projected Net Sales amount.
-
-    Table 2:
-      Retail/Insti/Digital/VRM/DHNI -> independently editable Overall/Equity/
-      Debt/Liquid thresholds -> count and projected amount for each dimension.
-
-    Table 3:
-      The same asset-class qualification matrix by market type.
-
-    Final table:
-      Every Table-1-qualified RM with workbook metadata, run rate and projected
-      Net Sales by Overall and asset class.
-    """
+    """User-friendly screenshot-style threshold simulator."""
+    inject_voyage_experience_css()
     final_metrics = parse_final_dashboard_metrics(payload)
-    render_apple_header(final_metrics, records, "FY27 · Bon voyage")
 
-    section_header(
-        "01",
-        "Bon voyage simulation",
-        "Who reaches the selected threshold if the current Net Sales run rate continues",
+    st.markdown(
+        """
+        <div class='bv-hero'>
+          <div class='eyebrow'>Current NS Achievement · #Employees</div>
+          <div class='title'>Bon voyage · Outperformer contribution simulator</div>
+          <div class='sub'>
+            Pick one business cut, edit the five location thresholds, and immediately see
+            how many regional managers qualify, the projected Net Sales they contribute,
+            the location-wise FY Net Sales target and the resulting contribution percentage.
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
     )
 
-    controls_left, controls_right = st.columns([1, 2.4])
-    with controls_left:
+    controls = st.columns([1.4, 1.0, 2.3])
+    with controls[0]:
+        cut_options = list(BON_VOYAGE_CUTS.keys())
+        cut_label = st.selectbox(
+            "Select scenario cut",
+            cut_options,
+            index=cut_options.index(
+                st.session_state.get("bv_selected_cut", "RETAIL EQUITY")
+                if st.session_state.get("bv_selected_cut", "RETAIL EQUITY") in cut_options
+                else "RETAIL EQUITY"
+            ),
+            key="bv_selected_cut",
+            help=(
+                "Choose ALL or a Division × Asset cut such as RETAIL EQUITY, "
+                "DHNI DEBT, VRM LIQUID, INSTI EQUITY or DIGITAL DEBT."
+            ),
+        )
+    with controls[1]:
         projection_months = int(
             st.number_input(
                 "Months to project",
                 min_value=0,
                 max_value=12,
-                value=int(st.session_state.get("bv_projection_months", MONTHS_REMAINING)),
+                value=int(
+                    st.session_state.get(
+                        "bv_projection_months",
+                        MONTHS_REMAINING,
+                    )
+                ),
                 step=1,
                 key="bv_projection_months",
                 help=(
-                    "Default is 9 remaining months. Projection = YTD Net Sales + "
+                    "Projection = YTD Net Sales + "
                     "(YTD Net Sales ÷ 3) × selected months."
                 ),
             )
         )
-    with controls_right:
+    with controls[2]:
         glass_callout(
-            "<b>Projection formula:</b> YTD Net Sales + "
-            "(YTD Net Sales ÷ 3 completed months) × editable months. "
-            "Qualification is tested against each RM's FY Net Sales target."
+            "<b>Qualification basis:</b> projected achievement % for the selected "
+            "Division × Asset cut. Thresholds are location-specific and default to 100%."
         )
 
-    detail = build_bon_voyage_rm_detail(records, projection_months)
-
+    detail = build_bon_voyage_rm_detail(
+        records,
+        projection_months,
+    )
     if detail.empty:
-        glass_note("No RM-level Net Sales records are available for Bon voyage.")
+        glass_note("No RM-level Net Sales records are available.")
         return
 
-    # ------------------------------------------------------------------
-    # Table 1
-    # ------------------------------------------------------------------
+    scope, dimension, cut_name = _bon_voyage_scope_for_cut(
+        detail,
+        cut_label,
+    )
+
+    st.markdown(
+        f"""
+        <div class='bv-cut-banner'>
+          <div class='cut'>Scenario cut</div>
+          <div class='name'>{escape(cut_name)}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    thresholds = _bon_voyage_thresholds_for_cut(
+        cut_label,
+        "bv_screen",
+    )
+    result, qualified = _bon_voyage_location_results(
+        scope,
+        dimension,
+        thresholds,
+    )
+
+    section_header(
+        "01",
+        "Location-wise threshold contribution",
+        (
+            "Employees → editable threshold → qualified RMs → projected NS contribution "
+            "→ location-wise NS target → contribution"
+        ),
+    )
+    render_glass_table(
+        result,
+        _bon_voyage_location_formats(dimension),
+        total_rows=("OVERALL",),
+        css_class="bv-table",
+    )
+
+    overall = result.iloc[0]
+    kpi_strip([
+        {
+            "label": "Employees in selected cut",
+            "value": fmt_num(overall.get("Employees")),
+            "secondary": cut_name,
+        },
+        {
+            "label": "Qualified RMs",
+            "value": fmt_num(overall.get("Qualified RMs")),
+            "secondary": "after location thresholds",
+        },
+        {
+            "label": "NS contribution",
+            "value": fmt_cr(overall.get("NS Contribution")),
+            "secondary": f"projected {dimension} NS",
+        },
+        {
+            "label": "Selected-cut target",
+            "value": fmt_cr(
+                overall.get(f"Location-wise {dimension} NS Target")
+            ),
+            "secondary": f"{dimension} FY NS target",
+        },
+        {
+            "label": "Contribution",
+            "value": fmt_pct(overall.get("Contribution")),
+            "secondary": "qualified projected NS ÷ target",
+        },
+    ])
+
     section_header(
         "02",
-        "Market qualification",
-        "T2 · T6 · T30 · B30 · EM | Overall Net Sales threshold",
+        "Qualified regional managers",
+        f"RM detail for {cut_name} using the five thresholds above",
     )
-
-    table1_thresholds = _bon_voyage_threshold_matrix(
-        BON_VOYAGE_MARKETS,
-        ["Overall"],
-        "bv_t1",
-    )
-    table1 = _bon_voyage_group_output(
-        detail,
-        "Market Bucket",
-        BON_VOYAGE_MARKETS,
-        table1_thresholds,
-        ["Overall"],
+    detail_table, detail_formats = _bon_voyage_rm_detail_table(
+        qualified,
+        dimension,
     )
     render_glass_table(
-        table1.rename(columns={"Market Bucket": "Market"}),
+        detail_table,
+        detail_formats,
+        max_html_rows=350,
+        css_class="bv-detail",
+        empty_message=(
+            "No regional managers qualify for the current thresholds."
+        ),
+    )
+
+    if not detail_table.empty:
+        st.download_button(
+            "Download this qualified RM cut",
+            data=detail_table.to_csv(index=False).encode("utf-8-sig"),
+            file_name=(
+                f"bon_voyage_{_scenario10_slug(cut_label)}_qualified.csv"
+            ),
+            mime="text/csv",
+            key="bv_download_current_cut",
+        )
+
+    glass_note(
+        "B30 Select is combined into B30 and T30 Ext is combined into T30. "
+        "Contribution = projected Net Sales of qualified RMs ÷ the location-wise "
+        "Net Sales FY target for the selected cut."
+    )
+
+
+def _ai_summary_by_market(
+    scope: pd.DataFrame,
+    dimension: str,
+    threshold: float,
+) -> pd.DataFrame:
+    rows: List[Dict[str, Any]] = []
+    target_col = f"{dimension} FY Target"
+    projection_col = f"{dimension} Projected NS"
+    pct_col = f"{dimension} Projected %"
+
+    for market in BON_VOYAGE_MARKETS:
+        subset = scope.loc[
+            scope["Market Bucket"] == market
+        ].copy()
+        qualified = subset.loc[
+            pd.to_numeric(
+                subset[pct_col], errors="coerce"
+            ).fillna(0.0) >= threshold
+        ].copy()
+
+        employees = int(subset["_BV RM Key"].nunique()) if not subset.empty else 0
+        q = int(qualified["_BV RM Key"].nunique()) if not qualified.empty else 0
+        amount = float(
+            pd.to_numeric(
+                qualified[projection_col], errors="coerce"
+            ).fillna(0.0).sum()
+        ) if not qualified.empty else 0.0
+        target = float(
+            pd.to_numeric(
+                subset[target_col], errors="coerce"
+            ).fillna(0.0).sum()
+        ) if not subset.empty else 0.0
+
+        rows.append({
+            "Market": market,
+            "Employees": employees,
+            "Qualified": q,
+            "Qualification Rate": q / employees if employees else 0.0,
+            "Qualified Projected NS": amount,
+            "FY NS Target": target,
+            "Contribution": amount / target if target else 0.0,
+            "Projected Revenue": _bon_voyage_projected_revenue(qualified),
+        })
+    return pd.DataFrame(rows)
+
+
+def _ai_summary_by_division(
+    detail: pd.DataFrame,
+    threshold: float,
+) -> pd.DataFrame:
+    rows: List[Dict[str, Any]] = []
+
+    for division in BON_VOYAGE_DIVISIONS:
+        subset = detail.loc[
+            detail["Bon Voyage Division"] == division
+        ].copy()
+        qualified = subset.loc[
+            pd.to_numeric(
+                subset["Overall Projected %"], errors="coerce"
+            ).fillna(0.0) >= threshold
+        ].copy()
+
+        employees = int(subset["_BV RM Key"].nunique()) if not subset.empty else 0
+        q = int(qualified["_BV RM Key"].nunique()) if not qualified.empty else 0
+        amount = float(
+            pd.to_numeric(
+                qualified["Overall Projected NS"], errors="coerce"
+            ).fillna(0.0).sum()
+        ) if not qualified.empty else 0.0
+        target = float(
+            pd.to_numeric(
+                subset["Overall FY Target"], errors="coerce"
+            ).fillna(0.0).sum()
+        ) if not subset.empty else 0.0
+
+        rows.append({
+            "Division": division,
+            "Employees": employees,
+            "Qualified": q,
+            "Qualification Rate": q / employees if employees else 0.0,
+            "Qualified Projected NS": amount,
+            "FY NS Target": target,
+            "Contribution": amount / target if target else 0.0,
+            "Projected Revenue": _bon_voyage_projected_revenue(qualified),
+        })
+    return pd.DataFrame(rows)
+
+
+def _ai_summary_by_asset(
+    all_scope: pd.DataFrame,
+    threshold: float,
+) -> pd.DataFrame:
+    rows: List[Dict[str, Any]] = []
+
+    for asset in ASSETS:
+        pct_col = f"{asset} Projected %"
+        amount_col = f"{asset} Projected NS"
+        target_col = f"{asset} FY Target"
+
+        qualified = all_scope.loc[
+            pd.to_numeric(
+                all_scope[pct_col], errors="coerce"
+            ).fillna(0.0) >= threshold
+        ].copy()
+
+        employees = int(all_scope["_BV RM Key"].nunique())
+        q = int(qualified["_BV RM Key"].nunique()) if not qualified.empty else 0
+        amount = float(
+            pd.to_numeric(
+                qualified[amount_col], errors="coerce"
+            ).fillna(0.0).sum()
+        ) if not qualified.empty else 0.0
+        target = float(
+            pd.to_numeric(
+                all_scope[target_col], errors="coerce"
+            ).fillna(0.0).sum()
+        )
+        revenue = amount * REVENUE_RATE.get(asset, 0.0)
+
+        rows.append({
+            "Asset": asset,
+            "Employees": employees,
+            "Qualified": q,
+            "Qualification Rate": q / employees if employees else 0.0,
+            "Qualified Projected NS": amount,
+            "FY NS Target": target,
+            "Contribution": amount / target if target else 0.0,
+            "Projected Revenue": revenue,
+        })
+    return pd.DataFrame(rows)
+
+
+def _ai_near_miss_pool(
+    all_scope: pd.DataFrame,
+    threshold: float,
+) -> pd.DataFrame:
+    pct = pd.to_numeric(
+        all_scope["Overall Projected %"], errors="coerce"
+    ).fillna(0.0)
+
+    definitions = [
+        ("Within 5 pp", max(threshold - 0.05, 0.0), threshold),
+        ("5–10 pp away", max(threshold - 0.10, 0.0), max(threshold - 0.05, 0.0)),
+        ("10–20 pp away", max(threshold - 0.20, 0.0), max(threshold - 0.10, 0.0)),
+    ]
+
+    rows = []
+    for label, lower, upper in definitions:
+        subset = all_scope.loc[
+            (pct >= lower) & (pct < upper)
+        ].copy()
+        rows.append({
+            "Conversion Pool": label,
+            "Employees": int(subset["_BV RM Key"].nunique()) if not subset.empty else 0,
+            "Projected NS": float(
+                pd.to_numeric(
+                    subset["Overall Projected NS"], errors="coerce"
+                ).fillna(0.0).sum()
+            ) if not subset.empty else 0.0,
+            "Projected Revenue": _bon_voyage_projected_revenue(subset),
+            "Avg Projected Achievement": float(
+                pd.to_numeric(
+                    subset["Overall Projected %"], errors="coerce"
+                ).fillna(0.0).mean()
+            ) if not subset.empty else 0.0,
+        })
+    return pd.DataFrame(rows)
+
+
+def _ai_glow_cards(cards: Sequence[Dict[str, str]]) -> None:
+    blocks = []
+    for card in cards:
+        blocks.append(
+            "<div class='ai-glow'>"
+            f"<div class='label'>{escape(card.get('label',''))}</div>"
+            f"<div class='value'>{escape(card.get('value',''))}</div>"
+            f"<div class='mini'>{escape(card.get('mini',''))}</div>"
+            "</div>"
+        )
+    st.markdown(
+        "<div class='ai-glow-grid'>" + "".join(blocks) + "</div>",
+        unsafe_allow_html=True,
+    )
+
+
+def _ai_trip_rows(
+    scope: pd.DataFrame,
+    dimension: str,
+    threshold: float,
+    cost_per_employee_lakh: float,
+) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    pct_col = f"{dimension} Projected %"
+    selected_amount_col = f"{dimension} Projected NS"
+
+    rows = []
+    all_qualified_parts: List[pd.DataFrame] = []
+
+    for market in BON_VOYAGE_MARKETS:
+        subset = scope.loc[
+            scope["Market Bucket"] == market
+        ].copy()
+        qualified = subset.loc[
+            pd.to_numeric(
+                subset[pct_col], errors="coerce"
+            ).fillna(0.0) >= threshold
+        ].copy()
+
+        if not qualified.empty:
+            all_qualified_parts.append(qualified)
+
+        count = int(qualified["_BV RM Key"].nunique()) if not qualified.empty else 0
+        selected_ns = float(
+            pd.to_numeric(
+                qualified[selected_amount_col], errors="coerce"
+            ).fillna(0.0).sum()
+        ) if not qualified.empty else 0.0
+        overall_ns = float(
+            pd.to_numeric(
+                qualified["Overall Projected NS"], errors="coerce"
+            ).fillna(0.0).sum()
+        ) if not qualified.empty else 0.0
+        revenue = _bon_voyage_projected_revenue(qualified)
+        spend_lakh = count * float(cost_per_employee_lakh)
+        spend_cr = spend_lakh / 100.0
+
+        rows.append({
+            "Market": market,
+            "Qualified Employees": count,
+            "Cost / Employee (₹ Lakh)": cost_per_employee_lakh,
+            "Total Trip Spend (₹ Lakh)": spend_lakh,
+            "Total Trip Spend (₹ Cr)": spend_cr,
+            "Selected-cut Projected NS": selected_ns,
+            "Overall Projected NS": overall_ns,
+            "Projected Revenue (₹ Cr)": revenue,
+            "Revenue / Trip Spend": revenue / spend_cr if spend_cr > 0 else 0.0,
+        })
+
+    qualified_all = (
+        pd.concat(all_qualified_parts, ignore_index=True)
+        if all_qualified_parts else pd.DataFrame()
+    )
+
+    if not qualified_all.empty:
+        qualified_all = qualified_all.drop_duplicates(
+            subset=["_BV RM Key", "Market Bucket"]
+        )
+
+    total_count = (
+        int(qualified_all["_BV RM Key"].nunique())
+        if not qualified_all.empty else 0
+    )
+    total_spend_lakh = total_count * float(cost_per_employee_lakh)
+    total_spend_cr = total_spend_lakh / 100.0
+
+    total_selected_ns = float(
+        pd.to_numeric(
+            qualified_all[selected_amount_col], errors="coerce"
+        ).fillna(0.0).sum()
+    ) if not qualified_all.empty else 0.0
+    total_overall_ns = float(
+        pd.to_numeric(
+            qualified_all["Overall Projected NS"], errors="coerce"
+        ).fillna(0.0).sum()
+    ) if not qualified_all.empty else 0.0
+    total_revenue = _bon_voyage_projected_revenue(qualified_all)
+
+    overall = {
+        "Market": "OVERALL",
+        "Qualified Employees": total_count,
+        "Cost / Employee (₹ Lakh)": cost_per_employee_lakh,
+        "Total Trip Spend (₹ Lakh)": total_spend_lakh,
+        "Total Trip Spend (₹ Cr)": total_spend_cr,
+        "Selected-cut Projected NS": total_selected_ns,
+        "Overall Projected NS": total_overall_ns,
+        "Projected Revenue (₹ Cr)": total_revenue,
+        "Revenue / Trip Spend": (
+            total_revenue / total_spend_cr
+            if total_spend_cr > 0 else 0.0
+        ),
+    }
+
+    return pd.DataFrame([overall, *rows]), qualified_all
+
+
+def render_ai_choice_page(
+    records: pd.DataFrame,
+    payload: bytes,
+) -> None:
+    """Bright decision-support page built from the same RM run-rate projections."""
+    inject_voyage_experience_css()
+
+    st.markdown(
+        """
+        <div class='ai-hero'>
+          <span class='eyebrow'>AI Choice · Voyage Intelligence Lab</span>
+          <div class='title'>Where are the winners, the near-misses and the best trip economics?</div>
+          <div class='sub'>
+            A management view of the same RM Net Sales data: winner concentration by market,
+            division and asset class, the near-miss conversion pool, and a live comparison
+            between projected revenue and the foreign-trip budget.
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    control_cols = st.columns([1.0, 1.0, 1.2])
+    with control_cols[0]:
+        months = int(
+            st.number_input(
+                "Projection months",
+                min_value=0,
+                max_value=12,
+                value=int(
+                    st.session_state.get(
+                        "ai_projection_months",
+                        st.session_state.get(
+                            "bv_projection_months",
+                            MONTHS_REMAINING,
+                        ),
+                    )
+                ),
+                step=1,
+                key="ai_projection_months",
+            )
+        )
+    with control_cols[1]:
+        threshold_pct = float(
+            st.number_input(
+                "Winner threshold %",
+                min_value=0.0,
+                value=float(
+                    st.session_state.get(
+                        "ai_threshold_pct",
+                        100.0,
+                    )
+                ),
+                step=5.0,
+                format="%.1f",
+                key="ai_threshold_pct",
+            )
+        )
+        threshold = threshold_pct / 100.0
+    with control_cols[2]:
+        trip_cost_lakh = float(
+            st.number_input(
+                "Foreign trip cost / employee (₹ Lakh)",
+                min_value=0.0,
+                value=float(
+                    st.session_state.get(
+                        "ai_trip_cost_lakh",
+                        3.0,
+                    )
+                ),
+                step=0.25,
+                format="%.2f",
+                key="ai_trip_cost_lakh",
+                help=(
+                    "Total trip budget = qualified employees × "
+                    "this editable cost."
+                ),
+            )
+        )
+
+    detail = build_bon_voyage_rm_detail(records, months)
+    if detail.empty:
+        glass_note("No RM-level Net Sales records are available.")
+        return
+
+    all_scope = _bon_voyage_collapse_all_divisions(detail)
+    overall_qualified = all_scope.loc[
+        pd.to_numeric(
+            all_scope["Overall Projected %"], errors="coerce"
+        ).fillna(0.0) >= threshold
+    ].copy()
+
+    employee_count = int(all_scope["_BV RM Key"].nunique())
+    qualified_count = (
+        int(overall_qualified["_BV RM Key"].nunique())
+        if not overall_qualified.empty else 0
+    )
+    projected_ns = float(
+        pd.to_numeric(
+            overall_qualified["Overall Projected NS"],
+            errors="coerce",
+        ).fillna(0.0).sum()
+    ) if not overall_qualified.empty else 0.0
+    revenue = _bon_voyage_projected_revenue(overall_qualified)
+
+    _ai_glow_cards([
+        {
+            "label": "Total RM universe",
+            "value": fmt_num(employee_count),
+            "mini": "Across the available Net Sales RM data",
+        },
+        {
+            "label": "Overall winners",
+            "value": fmt_num(qualified_count),
+            "mini": f"At or above {threshold_pct:.1f}% projected achievement",
+        },
+        {
+            "label": "Winner rate",
+            "value": fmt_pct(
+                qualified_count / employee_count
+                if employee_count else 0.0
+            ),
+            "mini": "Qualified employees ÷ RM universe",
+        },
+        {
+            "label": "Projected NS",
+            "value": fmt_cr(projected_ns),
+            "mini": "Overall projected Net Sales from winners",
+        },
+        {
+            "label": "Projected revenue",
+            "value": fmt_cr(revenue),
+            "mini": "Equity 60 bps · Debt 20 bps · Liquid 10 bps",
+        },
+    ])
+
+    market_summary = _ai_summary_by_market(
+        all_scope,
+        "Overall",
+        threshold,
+    )
+    division_summary = _ai_summary_by_division(
+        detail,
+        threshold,
+    )
+    asset_summary = _ai_summary_by_asset(
+        all_scope,
+        threshold,
+    )
+    near_miss = _ai_near_miss_pool(
+        all_scope,
+        threshold,
+    )
+
+    # Deterministic insight cards from the data.
+    best_market = (
+        market_summary.sort_values(
+            "Contribution", ascending=False
+        ).iloc[0]
+        if not market_summary.empty else None
+    )
+    best_division = (
+        division_summary.sort_values(
+            "Contribution", ascending=False
+        ).iloc[0]
+        if not division_summary.empty else None
+    )
+    near_total = int(
+        near_miss["Employees"].sum()
+    ) if not near_miss.empty else 0
+
+    st.markdown(
+        "<div class='ai-panel'><div class='ttl'>AI Choice · management pulse</div>"
+        "<div class='sub'>Data-driven highlights from the selected threshold and projection horizon.</div></div>",
+        unsafe_allow_html=True,
+    )
+
+    pulse_cards = []
+    if best_market is not None:
+        pulse_cards.append({
+            "label": "Strongest market",
+            "value": str(best_market["Market"]),
+            "mini": (
+                f"{fmt_pct(best_market['Contribution'])} target contribution · "
+                f"{fmt_num(best_market['Qualified'])} winners"
+            ),
+        })
+    if best_division is not None:
+        pulse_cards.append({
+            "label": "Strongest division",
+            "value": str(best_division["Division"]),
+            "mini": (
+                f"{fmt_pct(best_division['Contribution'])} target contribution · "
+                f"{fmt_num(best_division['Qualified'])} winners"
+            ),
+        })
+    pulse_cards.append({
+        "label": "Near-miss conversion pool",
+        "value": fmt_num(near_total),
+        "mini": "RMs sitting within 20 percentage points below the threshold",
+    })
+    _ai_glow_cards(pulse_cards)
+
+    section_header(
+        "01",
+        "Market winner concentration",
+        "T2 · T6 · T30 · B30 · EM",
+    )
+    render_glass_table(
+        market_summary,
         {
             "Market": "txt",
-            "Overall Threshold": "pct",
-            "Overall Count": "num",
-            "Overall Amount": "cr",
+            "Employees": "num",
+            "Qualified": "num",
+            "Qualification Rate": "pct",
+            "Qualified Projected NS": "cr",
+            "FY NS Target": "cr",
+            "Contribution": "pct",
+            "Projected Revenue": "cr",
         },
-    )
-    glass_note(
-        "Count = number of RMs whose projected Overall Net Sales achievement meets the "
-        "editable threshold. Amount = combined projected Net Sales of those qualified RMs."
+        css_class="ai-table",
     )
 
-    # ------------------------------------------------------------------
-    # Table 2
-    # ------------------------------------------------------------------
+    section_header(
+        "02",
+        "Division winner concentration",
+        "Retail · Insti · Digital · VRM · DHNI",
+    )
+    render_glass_table(
+        division_summary,
+        {
+            "Division": "txt",
+            "Employees": "num",
+            "Qualified": "num",
+            "Qualification Rate": "pct",
+            "Qualified Projected NS": "cr",
+            "FY NS Target": "cr",
+            "Contribution": "pct",
+            "Projected Revenue": "cr",
+        },
+        css_class="ai-table",
+    )
+
     section_header(
         "03",
-        "Division × Asset qualification",
-        "Retail · Insti · Digital · VRM · DHNI | Overall + Equity + Debt + Liquid",
-    )
-
-    table2_thresholds = _bon_voyage_threshold_matrix(
-        BON_VOYAGE_DIVISIONS,
-        BON_VOYAGE_DIMENSIONS,
-        "bv_t2",
-    )
-    table2 = _bon_voyage_group_output(
-        detail,
-        "Bon Voyage Division",
-        BON_VOYAGE_DIVISIONS,
-        table2_thresholds,
-        BON_VOYAGE_DIMENSIONS,
+        "Asset-class winner concentration",
+        "Equity · Debt · Liquid",
     )
     render_glass_table(
-        table2.rename(columns={"Bon Voyage Division": "Division"}),
-        _bon_voyage_table_formats(
-            "Division",
-            BON_VOYAGE_DIMENSIONS,
-        ),
-        max_html_rows=40,
-    )
-    glass_note(
-        "Overall, Equity, Debt and Liquid qualify independently. For example, an RM can "
-        "qualify the Equity threshold without qualifying the Debt threshold."
+        asset_summary,
+        {
+            "Asset": "txt",
+            "Employees": "num",
+            "Qualified": "num",
+            "Qualification Rate": "pct",
+            "Qualified Projected NS": "cr",
+            "FY NS Target": "cr",
+            "Contribution": "pct",
+            "Projected Revenue": "cr",
+        },
+        css_class="ai-table",
     )
 
-    # ------------------------------------------------------------------
-    # Table 3
-    # ------------------------------------------------------------------
     section_header(
         "04",
-        "Market × Asset qualification",
-        "T2 · T6 · T30 · B30 · EM | Overall + Equity + Debt + Liquid",
-    )
-
-    table3_thresholds = _bon_voyage_threshold_matrix(
-        BON_VOYAGE_MARKETS,
-        BON_VOYAGE_DIMENSIONS,
-        "bv_t3",
-    )
-    table3 = _bon_voyage_group_output(
-        detail,
-        "Market Bucket",
-        BON_VOYAGE_MARKETS,
-        table3_thresholds,
-        BON_VOYAGE_DIMENSIONS,
+        "Near-miss conversion pool",
+        "Employees just below the winner threshold",
     )
     render_glass_table(
-        table3.rename(columns={"Market Bucket": "Market"}),
-        _bon_voyage_table_formats(
-            "Market",
-            BON_VOYAGE_DIMENSIONS,
-        ),
-        max_html_rows=40,
+        near_miss,
+        {
+            "Conversion Pool": "txt",
+            "Employees": "num",
+            "Projected NS": "cr",
+            "Projected Revenue": "cr",
+            "Avg Projected Achievement": "pct",
+        },
+        css_class="ai-table",
     )
 
-    # ------------------------------------------------------------------
-    # Final Table based on Table 1
-    # ------------------------------------------------------------------
     section_header(
         "05",
-        "Qualified regional managers",
-        "All Table-1 qualifiers with RM details, run rate and projected Net Sales",
+        "Foreign-trip economics",
+        "Qualified employees × editable trip cost versus projected revenue",
     )
 
-    qualified = _bon_voyage_table1_qualified(
+    cut_options = list(BON_VOYAGE_CUTS.keys())
+    trip_cut = st.selectbox(
+        "Select qualification cut for trip economics",
+        cut_options,
+        index=cut_options.index(
+            st.session_state.get(
+                "ai_trip_cut",
+                st.session_state.get(
+                    "bv_selected_cut",
+                    "RETAIL EQUITY",
+                ),
+            )
+            if st.session_state.get(
+                "ai_trip_cut",
+                st.session_state.get(
+                    "bv_selected_cut",
+                    "RETAIL EQUITY",
+                ),
+            ) in cut_options
+            else "RETAIL EQUITY"
+        ),
+        key="ai_trip_cut",
+    )
+
+    trip_scope, trip_dimension, trip_cut_name = _bon_voyage_scope_for_cut(
         detail,
-        table1_thresholds,
+        trip_cut,
     )
-    final_table, final_formats = _bon_voyage_final_rm_table(qualified)
+    trip_table, trip_qualified = _ai_trip_rows(
+        trip_scope,
+        trip_dimension,
+        threshold,
+        trip_cost_lakh,
+    )
 
-    if final_table.empty:
-        glass_note(
-            "No regional managers currently meet the Table-1 thresholds for "
-            "T2 / T6 / T30 / B30 / EM."
-        )
-    else:
-        kpi_strip([
-            {
-                "label": "Qualified RMs",
-                "value": fmt_num(qualified["_BV RM Key"].nunique()),
-                "secondary": "Table-1 thresholds",
-            },
-            {
-                "label": "Projected Net Sales",
-                "value": fmt_cr(qualified["Overall Projected NS"].sum()),
-                "secondary": f"YTD + current RR × {projection_months} months",
-            },
-            {
-                "label": "Current YTD Net Sales",
-                "value": fmt_cr(qualified["Overall YTD NS"].sum()),
-                "secondary": "qualified RM population",
-            },
-            {
-                "label": "Current monthly run rate",
-                "value": fmt_cr(qualified["Overall Current RR"].sum()),
-                "secondary": "YTD ÷ 3",
-            },
-        ])
+    overall_trip = trip_table.iloc[0]
+    _ai_glow_cards([
+        {
+            "label": "Qualified employees",
+            "value": fmt_num(
+                overall_trip.get("Qualified Employees")
+            ),
+            "mini": f"{trip_cut_name} · threshold {threshold_pct:.1f}%",
+        },
+        {
+            "label": "Total foreign-trip spend",
+            "value": (
+                f"₹{_z(overall_trip.get('Total Trip Spend (₹ Lakh)')):,.1f} L"
+            ),
+            "mini": (
+                f"{fmt_num(overall_trip.get('Qualified Employees'))} × "
+                f"₹{trip_cost_lakh:,.2f} lakh"
+            ),
+        },
+        {
+            "label": "Trip spend in Cr",
+            "value": fmt_cr(
+                overall_trip.get("Total Trip Spend (₹ Cr)")
+            ),
+            "mini": "Comparable with projected revenue",
+        },
+        {
+            "label": "Projected revenue",
+            "value": fmt_cr(
+                overall_trip.get("Projected Revenue (₹ Cr)")
+            ),
+            "mini": "Revenue from the qualified employee pool",
+        },
+        {
+            "label": "Revenue / trip spend",
+            "value": (
+                f"{_z(overall_trip.get('Revenue / Trip Spend')):,.1f}×"
+            ),
+            "mini": "Projected revenue divided by total trip budget",
+        },
+    ])
 
-        render_glass_table(
-            final_table,
-            final_formats,
-            max_html_rows=300,
-        )
-
-        csv_payload = final_table.to_csv(index=False).encode("utf-8-sig")
-        st.download_button(
-            "Download qualified RM detail",
-            data=csv_payload,
-            file_name="bon_voyage_qualified_rms.csv",
-            mime="text/csv",
-            key="bv_download_qualified",
-        )
+    render_glass_table(
+        trip_table,
+        {
+            "Market": "txt",
+            "Qualified Employees": "num",
+            "Cost / Employee (₹ Lakh)": "num",
+            "Total Trip Spend (₹ Lakh)": "num",
+            "Total Trip Spend (₹ Cr)": "cr",
+            "Selected-cut Projected NS": "cr",
+            "Overall Projected NS": "cr",
+            "Projected Revenue (₹ Cr)": "cr",
+            "Revenue / Trip Spend": "num",
+        },
+        total_rows=("OVERALL",),
+        css_class="ai-trip",
+    )
 
     glass_note(
-        "B30 Select is consolidated into B30 and T30 Ext is consolidated into T30, "
-        "using the same market-bucket logic as Scenario 10."
+        "Projected revenue uses the same dashboard assumptions: Equity 60 bps, "
+        "Debt 20 bps and Liquid 10 bps on projected Net Sales. Trip cost is an "
+        "editable planning assumption, not a workbook field."
     )
 
 
@@ -8320,7 +9257,7 @@ def reset_workbook() -> None:
 
     # Scenario 10 widget state depends on the current FINAL workbook.
     for key in list(st.session_state.keys()):
-        if str(key).startswith(("s10_", "s10v2_", "s10v3_", "bv_")):
+        if str(key).startswith(("s10_", "s10v2_", "s10v3_", "bv_", "ai_")):
             st.session_state.pop(key, None)
 
     rerun()
@@ -8366,6 +9303,8 @@ def main() -> None:
             render_rm_segmentation_page(records, payload)
         elif page == "Bon voyage":
             render_bon_voyage_page(records, payload)
+        elif page == "AI Choice":
+            render_ai_choice_page(records, payload)
         else:
             render_command_center(records, payload)
     except WorkbookError as error:
