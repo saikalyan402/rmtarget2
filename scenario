@@ -1,0 +1,1564 @@
+import streamlit as st
+import pandas as pd
+import numpy as np
+import plotly.express as px
+import plotly.graph_objects as go
+from pathlib import Path
+
+
+# ============================================================
+# PAGE CONFIG
+# ============================================================
+
+st.set_page_config(
+    page_title="RM Retail Sales Scenario Dashboard",
+    page_icon="📊",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
+
+
+# ============================================================
+# CUSTOM CSS
+# ============================================================
+
+st.markdown(
+    """
+<style>
+.main {
+    background-color: #f7f9fc;
+}
+
+.block-container {
+    padding-top: 1.2rem;
+    padding-bottom: 2rem;
+}
+
+.metric-card {
+    background: white;
+    padding: 18px;
+    border-radius: 12px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.06);
+    min-height: 125px;
+}
+
+.metric-title {
+    color: #6b7280;
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.metric-value {
+    color: #111827;
+    font-size: 28px;
+    font-weight: 700;
+    margin-top: 8px;
+}
+
+.metric-sub {
+    color: #6b7280;
+    font-size: 12px;
+    margin-top: 5px;
+}
+
+.section-title {
+    font-size: 22px;
+    font-weight: 700;
+    margin-top: 20px;
+    margin-bottom: 10px;
+}
+
+.small-note {
+    color: #6b7280;
+    font-size: 13px;
+}
+</style>
+""",
+    unsafe_allow_html=True,
+)
+
+
+# ============================================================
+# CONSTANTS
+# ============================================================
+
+SHEET_NAME = "RM Retail Sales"
+
+TARGET_COL = "FY 26 TGT EQ NS"
+JUNE_ACH_COL = "Equity NS Ach YTD June"
+
+# These are optional columns which may exist in the workbook.
+OPTIONAL_COLUMNS = [
+    "Employee Name",
+    "ZONE",
+    "REGION",
+    "EM City",
+    "MKT TYPE",
+    "Status",
+    "Type",
+    "DOJ",
+]
+
+
+# ============================================================
+# HELPERS
+# ============================================================
+
+def clean_column_name(col):
+    """
+    Normalize Excel column names.
+    """
+    col = str(col)
+
+    replacements = {
+        "\xa0": " ",
+        "\n": " ",
+        "\r": " ",
+        "\t": " ",
+    }
+
+    for old, new in replacements.items():
+        col = col.replace(old, new)
+
+    col = " ".join(col.split())
+
+    return col.strip()
+
+
+def clean_dataframe(df):
+    """
+    Clean Excel dataframe.
+    """
+    df = df.copy()
+
+    df.columns = [clean_column_name(c) for c in df.columns]
+
+    # Remove completely empty rows
+    df = df.dropna(how="all")
+
+    # Remove completely empty columns
+    df = df.dropna(axis=1, how="all")
+
+    return df
+
+
+def find_column(df, expected_name):
+    """
+    Find a column even if Excel contains
+    slightly different spacing/case.
+    """
+    expected = clean_column_name(expected_name).lower()
+
+    normalized = {
+        clean_column_name(c).lower(): c
+        for c in df.columns
+    }
+
+    if expected in normalized:
+        return normalized[expected]
+
+    # Partial matching
+    for normalized_name, original_name in normalized.items():
+        if expected in normalized_name:
+            return original_name
+
+    return None
+
+
+def numeric_series(df, column):
+    """
+    Convert a dataframe column to numeric safely.
+    """
+    if column not in df.columns:
+        return pd.Series(0, index=df.index)
+
+    return pd.to_numeric(
+        df[column]
+        .astype(str)
+        .str.replace(",", "", regex=False)
+        .str.replace("%", "", regex=False)
+        .replace(["NA", "N/A", "-", "", "nan", "None"], np.nan),
+        errors="coerce",
+    ).fillna(0)
+
+
+def format_amount(value):
+    """
+    Format amounts in Cr.
+    """
+    value = float(value)
+
+    if abs(value) >= 1000:
+        return f"₹{value:,.0f} Cr"
+
+    return f"₹{value:,.2f} Cr"
+
+
+def format_percent(value):
+    return f"{value:.1f}%"
+
+
+def metric_card(title, value, subtitle=""):
+    st.markdown(
+        f"""
+<div class="metric-card">
+    <div class="metric-title">{title}</div>
+    <div class="metric-value">{value}</div>
+    <div class="metric-sub">{subtitle}</div>
+</div>
+""",
+        unsafe_allow_html=True,
+    )
+
+
+# ============================================================
+# LOAD EXCEL
+# ============================================================
+
+@st.cache_data
+def load_excel(file):
+    excel = pd.ExcelFile(file)
+
+    if SHEET_NAME not in excel.sheet_names:
+        raise ValueError(
+            f"Sheet '{SHEET_NAME}' was not found.\n\n"
+            f"Available sheets:\n"
+            + "\n".join(excel.sheet_names)
+        )
+
+    df = pd.read_excel(
+        excel,
+        sheet_name=SHEET_NAME,
+    )
+
+    return clean_dataframe(df)
+
+
+# ============================================================
+# CALCULATION ENGINE
+# ============================================================
+
+def calculate_scenario(df, months, uplift=0):
+    result = df.copy()
+
+    # --------------------------------------------------------
+    # CURRENT ACHIEVEMENT
+    # --------------------------------------------------------
+    result["Current Achievement"] = numeric_series(
+        result,
+        JUNE_ACH_COL,
+    )
+
+    # --------------------------------------------------------
+    # FY26 TARGET
+    # --------------------------------------------------------
+    result["FY26 Target"] = numeric_series(
+        result,
+        TARGET_COL,
+    )
+
+    # --------------------------------------------------------
+    # CURRENT MONTHLY RUN RATE
+    # --------------------------------------------------------
+    result["Current Monthly Run Rate"] = (
+        result["Current Achievement"] / 3
+    )
+
+    # --------------------------------------------------------
+    # UPLIFTED RUN RATE
+    # --------------------------------------------------------
+    result["Adjusted Monthly Run Rate"] = (
+        result["Current Monthly Run Rate"]
+        * (1 + uplift)
+    )
+
+    # --------------------------------------------------------
+    # FUTURE REVENUE
+    # --------------------------------------------------------
+    result["Future Incremental NS"] = (
+        result["Adjusted Monthly Run Rate"]
+        * months
+    )
+
+    # --------------------------------------------------------
+    # PROJECTED FINAL NS
+    # --------------------------------------------------------
+    result["Projected Final NS"] = (
+        result["Current Achievement"]
+        + result["Future Incremental NS"]
+    )
+
+    # --------------------------------------------------------
+    # ACHIEVEMENT %
+    # --------------------------------------------------------
+    result["Projected Achievement %"] = np.where(
+        result["FY26 Target"] > 0,
+        (
+            result["Projected Final NS"]
+            / result["FY26 Target"]
+        ) * 100,
+        0,
+    )
+
+    # --------------------------------------------------------
+    # GAP TO TARGET
+    # --------------------------------------------------------
+    result["Gap to Target"] = (
+        result["FY26 Target"]
+        - result["Projected Final NS"]
+    )
+
+    # --------------------------------------------------------
+    # TARGET STATUS
+    # --------------------------------------------------------
+    result["100% Target Achieved"] = (
+        result["Projected Achievement %"] >= 100
+    )
+
+    result["120% Target Achieved"] = (
+        result["Projected Achievement %"] >= 120
+    )
+
+    # --------------------------------------------------------
+    # CONTRIBUTION TO TOTAL
+    # --------------------------------------------------------
+    total_revenue = result["Projected Final NS"].sum()
+
+    if total_revenue > 0:
+        result["Revenue Contribution %"] = (
+            result["Projected Final NS"]
+            / total_revenue
+        ) * 100
+    else:
+        result["Revenue Contribution %"] = 0
+
+    # --------------------------------------------------------
+    # CURRENT JUNE ACHIEVEMENT %
+    # --------------------------------------------------------
+    result["Current Achievement %"] = np.where(
+        result["FY26 Target"] > 0,
+        (
+            result["Current Achievement"]
+            / result["FY26 Target"]
+        ) * 100,
+        0,
+    )
+
+    return result
+
+
+# ============================================================
+# KPI CALCULATIONS
+# ============================================================
+
+def calculate_kpis(df):
+    total_target = df["FY26 Target"].sum()
+    current_achievement = df["Current Achievement"].sum()
+    current_run_rate = df["Current Monthly Run Rate"].sum()
+    future_incremental = df["Future Incremental NS"].sum()
+    projected_revenue = df["Projected Final NS"].sum()
+
+    achievement_pct = (
+        projected_revenue / total_target * 100
+        if total_target > 0
+        else 0
+    )
+
+    current_achievement_pct = (
+        current_achievement / total_target * 100
+        if total_target > 0
+        else 0
+    )
+
+    rm_100_current = (
+        df["Current Achievement %"] >= 100
+    ).sum()
+
+    rm_100_projected = (
+        df["Projected Achievement %"] >= 100
+    ).sum()
+
+    rm_120_projected = (
+        df["Projected Achievement %"] >= 120
+    ).sum()
+
+    return {
+        "total_target": total_target,
+        "current_achievement": current_achievement,
+        "current_run_rate": current_run_rate,
+        "future_incremental": future_incremental,
+        "projected_revenue": projected_revenue,
+        "achievement_pct": achievement_pct,
+        "current_achievement_pct": current_achievement_pct,
+        "rm_100_current": rm_100_current,
+        "rm_100_projected": rm_100_projected,
+        "rm_120_projected": rm_120_projected,
+        "rm_count": len(df),
+    }
+
+
+# ============================================================
+# CONTRIBUTION DISTRIBUTION
+# ============================================================
+
+def contribution_distribution(df):
+    contribution = df["Revenue Contribution %"].copy()
+
+    bins = [
+        0,
+        0.25,
+        0.5,
+        1,
+        1.5,
+        2,
+        3,
+        5,
+        10,
+        np.inf,
+    ]
+
+    labels = [
+        "0–0.25%",
+        "0.25–0.5%",
+        "0.5–1%",
+        "1–1.5%",
+        "1.5–2%",
+        "2–3%",
+        "3–5%",
+        "5–10%",
+        "10%+",
+    ]
+
+    bucket = pd.cut(
+        contribution,
+        bins=bins,
+        labels=labels,
+        include_lowest=True,
+    )
+
+    distribution = (
+        bucket
+        .value_counts()
+        .sort_index()
+        .reset_index()
+    )
+
+    distribution.columns = [
+        "Contribution Range",
+        "RM Count",
+    ]
+
+    return distribution
+
+
+# ============================================================
+# BELL CURVE
+# ============================================================
+
+def create_bell_curve(df):
+    values = df["Revenue Contribution %"].dropna()
+
+    if len(values) < 2:
+        return None
+
+    mean = values.mean()
+    std = values.std()
+
+    if std == 0:
+        return None
+
+    x = np.linspace(
+        max(0, mean - 4 * std),
+        mean + 4 * std,
+        300,
+    )
+
+    y = (
+        1
+        / (std * np.sqrt(2 * np.pi))
+    ) * np.exp(
+        -0.5 * ((x - mean) / std) ** 2
+    )
+
+    fig = go.Figure()
+
+    fig.add_trace(
+        go.Histogram(
+            x=values,
+            histnorm="probability density",
+            nbinsx=20,
+            name="RM Contribution",
+        )
+    )
+
+    fig.add_trace(
+        go.Scatter(
+            x=x,
+            y=y,
+            mode="lines",
+            name="Bell Curve",
+        )
+    )
+
+    fig.update_layout(
+        title="RM Revenue Contribution Distribution",
+        xaxis_title="Contribution to Total Revenue (%)",
+        yaxis_title="Density",
+        template="plotly_white",
+        height=450,
+    )
+
+    return fig
+
+
+# ============================================================
+# PAGE 1
+# ============================================================
+
+def page_scenario_dashboard(df):
+    st.title("📊 RM Retail Sales Scenario Dashboard")
+
+    st.caption(
+        "Equity Net Sales projection based on YTD June achievement "
+        "and current monthly run rate."
+    )
+
+    # --------------------------------------------------------
+    # SIDEBAR
+    # --------------------------------------------------------
+    st.sidebar.header("Scenario Controls")
+
+    months = st.sidebar.slider(
+        "Projection Months",
+        min_value=1,
+        max_value=12,
+        value=6,
+        step=1,
+    )
+
+    selected_scenario = st.sidebar.selectbox(
+        "Scenario",
+        [
+            "Scenario 1 — Current Run Rate",
+            "Scenario 2 — +5% Run Rate",
+            "Scenario 3 — +10% Run Rate",
+            "Scenario 4 — +15% Run Rate",
+        ],
+    )
+
+    # --------------------------------------------------------
+    # UPLIFT
+    # --------------------------------------------------------
+    if "5%" in selected_scenario:
+        uplift = 0.05
+    elif "10%" in selected_scenario:
+        uplift = 0.10
+    elif "15%" in selected_scenario:
+        uplift = 0.15
+    else:
+        uplift = 0
+
+    # --------------------------------------------------------
+    # FILTERS
+    # --------------------------------------------------------
+    st.sidebar.markdown("---")
+    st.sidebar.header("Filters")
+
+    working_df = df.copy()
+
+    if "ZONE" in working_df.columns:
+        zones = sorted(
+            working_df["ZONE"]
+            .dropna()
+            .astype(str)
+            .unique()
+        )
+
+        selected_zones = st.sidebar.multiselect(
+            "Zone",
+            zones,
+            default=zones,
+        )
+
+        if selected_zones:
+            working_df = working_df[
+                working_df["ZONE"]
+                .astype(str)
+                .isin(selected_zones)
+            ]
+
+    if "REGION" in working_df.columns:
+        regions = sorted(
+            working_df["REGION"]
+            .dropna()
+            .astype(str)
+            .unique()
+        )
+
+        selected_regions = st.sidebar.multiselect(
+            "Region",
+            regions,
+            default=regions,
+        )
+
+        if selected_regions:
+            working_df = working_df[
+                working_df["REGION"]
+                .astype(str)
+                .isin(selected_regions)
+            ]
+
+    # --------------------------------------------------------
+    # CALCULATE
+    # --------------------------------------------------------
+    scenario_df = calculate_scenario(
+        working_df,
+        months=months,
+        uplift=uplift,
+    )
+
+    kpis = calculate_kpis(scenario_df)
+
+    # --------------------------------------------------------
+    # SCENARIO DESCRIPTION
+    # --------------------------------------------------------
+    st.info(
+        f"""
+**{selected_scenario}**
+
+Projection period: **{months} months**
+
+Current monthly run rate =
+YTD June Equity NS Achievement ÷ 3
+
+Run-rate uplift =
+**{uplift * 100:.0f}%**
+"""
+    )
+
+    # --------------------------------------------------------
+    # KPI ROW 1
+    # --------------------------------------------------------
+    c1, c2, c3, c4 = st.columns(4)
+
+    with c1:
+        metric_card(
+            "FY26 Equity NS Target",
+            format_amount(kpis["total_target"]),
+            "Total annual target",
+        )
+
+    with c2:
+        metric_card(
+            "YTD June Achievement",
+            format_amount(kpis["current_achievement"]),
+            f'{kpis["current_achievement_pct"]:.1f}% of target',
+        )
+
+    with c3:
+        metric_card(
+            "Current Monthly Run Rate",
+            format_amount(kpis["current_run_rate"]),
+            "YTD June achievement ÷ 3",
+        )
+
+    with c4:
+        metric_card(
+            "Projected Final NS",
+            format_amount(kpis["projected_revenue"]),
+            f'{kpis["achievement_pct"]:.1f}% achievement',
+        )
+
+    # --------------------------------------------------------
+    # KPI ROW 2
+    # --------------------------------------------------------
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    c1, c2, c3, c4 = st.columns(4)
+
+    with c1:
+        metric_card(
+            "Projected Incremental NS",
+            format_amount(kpis["future_incremental"]),
+            f"Over next {months} months",
+        )
+
+    with c2:
+        metric_card(
+            "RMs ≥100% — June",
+            str(kpis["rm_100_current"]),
+            f'Out of {kpis["rm_count"]} RMs',
+        )
+
+    with c3:
+        metric_card(
+            "RMs ≥100% — Projected",
+            str(kpis["rm_100_projected"]),
+            f'Out of {kpis["rm_count"]} RMs',
+        )
+
+    with c4:
+        metric_card(
+            "RMs ≥120% — Projected",
+            str(kpis["rm_120_projected"]),
+            "Stretch achievement",
+        )
+
+    # --------------------------------------------------------
+    # SCENARIO COMPARISON
+    # --------------------------------------------------------
+    st.markdown(
+        '<div class="section-title">Scenario Comparison</div>',
+        unsafe_allow_html=True,
+    )
+
+    scenario_rows = []
+
+    scenario_definitions = [
+        ("Current Run Rate", 0),
+        ("+5% Run Rate", 0.05),
+        ("+10% Run Rate", 0.10),
+        ("+15% Run Rate", 0.15),
+    ]
+
+    for scenario_name, scenario_uplift in scenario_definitions:
+        temp = calculate_scenario(
+            working_df,
+            months,
+            scenario_uplift,
+        )
+
+        temp_kpi = calculate_kpis(temp)
+
+        scenario_rows.append(
+            {
+                "Scenario": scenario_name,
+                "Run Rate Uplift": scenario_uplift * 100,
+                "Monthly Run Rate": temp_kpi["current_run_rate"]
+                * (1 + scenario_uplift),
+                "Incremental NS": temp_kpi["future_incremental"],
+                "Projected NS": temp_kpi["projected_revenue"],
+                "Achievement %": temp_kpi["achievement_pct"],
+                "RMs ≥100%": temp_kpi["rm_100_projected"],
+                "RMs ≥120%": temp_kpi["rm_120_projected"],
+            }
+        )
+
+    scenario_table = pd.DataFrame(scenario_rows)
+
+    st.dataframe(
+        scenario_table.style.format(
+            {
+                "Run Rate Uplift": "{:.0f}%",
+                "Monthly Run Rate": "₹{:,.2f}",
+                "Incremental NS": "₹{:,.2f}",
+                "Projected NS": "₹{:,.2f}",
+                "Achievement %": "{:.1f}%",
+                "RMs ≥100%": "{:,.0f}",
+                "RMs ≥120%": "{:,.0f}",
+            }
+        ),
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    # --------------------------------------------------------
+    # SCENARIO CHART
+    # --------------------------------------------------------
+    fig = px.bar(
+        scenario_table,
+        x="Scenario",
+        y="Projected NS",
+        text="Achievement %",
+        title="Projected Net Sales by Scenario",
+    )
+
+    fig.update_traces(
+        texttemplate="%{text:.1f}%",
+        textposition="outside",
+    )
+
+    fig.update_layout(
+        template="plotly_white",
+        height=450,
+        yaxis_title="Projected Net Sales",
+    )
+
+    st.plotly_chart(
+        fig,
+        use_container_width=True,
+    )
+
+    # --------------------------------------------------------
+    # RM TABLE
+    # --------------------------------------------------------
+    st.markdown(
+        '<div class="section-title">RM-Level Projection</div>',
+        unsafe_allow_html=True,
+    )
+
+    display_columns = []
+
+    for col in [
+        "Employee Name",
+        "ZONE",
+        "REGION",
+        "EM City",
+        "MKT TYPE",
+    ]:
+        if col in scenario_df.columns:
+            display_columns.append(col)
+
+    display_columns += [
+        "FY26 Target",
+        "Current Achievement",
+        "Current Achievement %",
+        "Current Monthly Run Rate",
+        "Adjusted Monthly Run Rate",
+        "Future Incremental NS",
+        "Projected Final NS",
+        "Projected Achievement %",
+        "Gap to Target",
+        "Revenue Contribution %",
+    ]
+
+    display_df = scenario_df[
+        [
+            c
+            for c in display_columns
+            if c in scenario_df.columns
+        ]
+    ].copy()
+
+    display_df = display_df.sort_values(
+        "Projected Final NS",
+        ascending=False,
+    )
+
+    st.dataframe(
+        display_df.style.format(
+            {
+                "FY26 Target": "₹{:,.2f}",
+                "Current Achievement": "₹{:,.2f}",
+                "Current Achievement %": "{:.1f}%",
+                "Current Monthly Run Rate": "₹{:,.2f}",
+                "Adjusted Monthly Run Rate": "₹{:,.2f}",
+                "Future Incremental NS": "₹{:,.2f}",
+                "Projected Final NS": "₹{:,.2f}",
+                "Projected Achievement %": "{:.1f}%",
+                "Gap to Target": "₹{:,.2f}",
+                "Revenue Contribution %": "{:.2f}%",
+            }
+        ),
+        use_container_width=True,
+        height=600,
+        hide_index=True,
+    )
+
+    # --------------------------------------------------------
+    # DOWNLOAD
+    # --------------------------------------------------------
+    csv = scenario_df.to_csv(index=False).encode("utf-8")
+
+    st.download_button(
+        "⬇ Download Scenario Results",
+        data=csv,
+        file_name="rm_retail_sales_scenario.csv",
+        mime="text/csv",
+    )
+
+
+# ============================================================
+# PAGE 2
+# ============================================================
+
+def page_analytics(df):
+    st.title("📈 RM Sales Analytics & Distribution")
+
+    months = st.sidebar.slider(
+        "Projection Months",
+        min_value=1,
+        max_value=12,
+        value=6,
+        key="analytics_months",
+    )
+
+    uplift = st.sidebar.selectbox(
+        "Analytics Scenario",
+        [0, 0.05, 0.10, 0.15],
+        format_func=lambda x: (
+            "Current Run Rate"
+            if x == 0
+            else f"+{int(x * 100)}% Run Rate"
+        ),
+    )
+
+    scenario_df = calculate_scenario(
+        df,
+        months=months,
+        uplift=uplift,
+    )
+
+    # ========================================================
+    # TOP CONTRIBUTORS
+    # ========================================================
+    st.subheader("Top RM Contributors")
+
+    top10 = scenario_df.nlargest(
+        10,
+        "Projected Final NS",
+    ).copy()
+
+    if "Employee Name" in top10.columns:
+        top10["RM"] = (
+            top10["Employee Name"]
+            .fillna("Unknown")
+            .astype(str)
+        )
+    else:
+        top10["RM"] = top10.index.astype(str)
+
+    fig = px.bar(
+        top10.sort_values("Projected Final NS"),
+        x="Projected Final NS",
+        y="RM",
+        orientation="h",
+        text="Revenue Contribution %",
+        title="Top 10 RM Revenue Contributors",
+    )
+
+    fig.update_traces(
+        texttemplate="%{text:.2f}%",
+        textposition="outside",
+    )
+
+    fig.update_layout(
+        template="plotly_white",
+        height=500,
+        xaxis_title="Projected Net Sales",
+    )
+
+    st.plotly_chart(
+        fig,
+        use_container_width=True,
+    )
+
+    # ========================================================
+    # PARETO
+    # ========================================================
+    st.subheader("RM Contribution Pareto Analysis")
+
+    pareto = scenario_df.sort_values(
+        "Projected Final NS",
+        ascending=False,
+    ).copy()
+
+    total = pareto["Projected Final NS"].sum()
+
+    pareto["Contribution %"] = (
+        pareto["Projected Final NS"]
+        / total
+        * 100
+    )
+
+    pareto["Cumulative Contribution %"] = (
+        pareto["Contribution %"].cumsum()
+    )
+
+    pareto["RM Number"] = np.arange(
+        1,
+        len(pareto) + 1,
+    )
+
+    fig = go.Figure()
+
+    fig.add_trace(
+        go.Bar(
+            x=pareto["RM Number"],
+            y=pareto["Contribution %"],
+            name="Individual RM Contribution",
+        )
+    )
+
+    fig.add_trace(
+        go.Scatter(
+            x=pareto["RM Number"],
+            y=pareto["Cumulative Contribution %"],
+            mode="lines",
+            name="Cumulative Contribution",
+            yaxis="y2",
+        )
+    )
+
+    fig.update_layout(
+        title="Pareto: RM Contribution to Total Revenue",
+        xaxis_title="RM Rank",
+        yaxis=dict(
+            title="Individual Contribution %",
+        ),
+        yaxis2=dict(
+            title="Cumulative Contribution %",
+            overlaying="y",
+            side="right",
+            range=[0, 100],
+        ),
+        template="plotly_white",
+        height=500,
+    )
+
+    st.plotly_chart(
+        fig,
+        use_container_width=True,
+    )
+
+    # ========================================================
+    # BELL CURVE
+    # ========================================================
+    st.subheader("RM Contribution Bell Curve")
+
+    bell = create_bell_curve(scenario_df)
+
+    if bell is not None:
+        st.plotly_chart(
+            bell,
+            use_container_width=True,
+        )
+    else:
+        st.warning(
+            "Not enough variation in RM contribution "
+            "to create a bell curve."
+        )
+
+    # ========================================================
+    # CONTRIBUTION BUCKETS
+    # ========================================================
+    st.subheader(
+        "How Many RMs Contribute X% of Total Revenue?"
+    )
+
+    distribution = contribution_distribution(scenario_df)
+
+    fig = px.bar(
+        distribution,
+        x="Contribution Range",
+        y="RM Count",
+        text="RM Count",
+        title="RM Count by Revenue Contribution",
+    )
+
+    fig.update_traces(
+        textposition="outside",
+    )
+
+    fig.update_layout(
+        template="plotly_white",
+        height=450,
+    )
+
+    st.plotly_chart(
+        fig,
+        use_container_width=True,
+    )
+
+    st.dataframe(
+        distribution,
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    # ========================================================
+    # ACHIEVEMENT DISTRIBUTION
+    # ========================================================
+    st.subheader(
+        "RM Target Achievement Distribution"
+    )
+
+    achievement = scenario_df[
+        "Projected Achievement %"
+    ]
+
+    achievement_bins = [
+        -np.inf,
+        50,
+        75,
+        90,
+        100,
+        110,
+        120,
+        np.inf,
+    ]
+
+    achievement_labels = [
+        "<50%",
+        "50–75%",
+        "75–90%",
+        "90–100%",
+        "100–110%",
+        "110–120%",
+        "120%+",
+    ]
+
+    buckets = pd.cut(
+        achievement,
+        bins=achievement_bins,
+        labels=achievement_labels,
+    )
+
+    achievement_distribution = (
+        buckets
+        .value_counts()
+        .sort_index()
+        .reset_index()
+    )
+
+    achievement_distribution.columns = [
+        "Achievement Range",
+        "RM Count",
+    ]
+
+    fig = px.bar(
+        achievement_distribution,
+        x="Achievement Range",
+        y="RM Count",
+        text="RM Count",
+        title="Projected RM Achievement Distribution",
+    )
+
+    fig.update_traces(
+        textposition="outside",
+    )
+
+    fig.update_layout(
+        template="plotly_white",
+        height=450,
+    )
+
+    st.plotly_chart(
+        fig,
+        use_container_width=True,
+    )
+
+    # ========================================================
+    # TARGET VS ACHIEVEMENT
+    # ========================================================
+    st.subheader(
+        "Target vs Projected Net Sales"
+    )
+
+    fig = px.scatter(
+        scenario_df,
+        x="FY26 Target",
+        y="Projected Final NS",
+        size="Projected Final NS",
+        hover_name=(
+            "Employee Name"
+            if "Employee Name" in scenario_df.columns
+            else None
+        ),
+        title="FY26 Target vs Projected Final Net Sales",
+    )
+
+    # 100% achievement line
+    max_value = max(
+        scenario_df["FY26 Target"].max(),
+        scenario_df["Projected Final NS"].max(),
+    )
+
+    fig.add_trace(
+        go.Scatter(
+            x=[0, max_value],
+            y=[0, max_value],
+            mode="lines",
+            name="100% Target",
+        )
+    )
+
+    fig.update_layout(
+        template="plotly_white",
+        height=550,
+    )
+
+    st.plotly_chart(
+        fig,
+        use_container_width=True,
+    )
+
+    # ========================================================
+    # REGION PERFORMANCE
+    # ========================================================
+    if "REGION" in scenario_df.columns:
+        st.subheader(
+            "Region-wise Performance"
+        )
+
+        region = (
+            scenario_df
+            .groupby("REGION", dropna=False)
+            .agg(
+                Target=("FY26 Target", "sum"),
+                Current_Achievement=(
+                    "Current Achievement",
+                    "sum",
+                ),
+                Projected_NS=(
+                    "Projected Final NS",
+                    "sum",
+                ),
+                RM_Count=(
+                    "FY26 Target",
+                    "count",
+                ),
+            )
+            .reset_index()
+        )
+
+        region["Achievement %"] = np.where(
+            region["Target"] > 0,
+            region["Projected_NS"]
+            / region["Target"]
+            * 100,
+            0,
+        )
+
+        fig = px.bar(
+            region.sort_values(
+                "Projected_NS",
+                ascending=False,
+            ),
+            x="REGION",
+            y="Projected_NS",
+            color="Achievement %",
+            text="Achievement %",
+            title="Projected Net Sales by Region",
+        )
+
+        fig.update_traces(
+            texttemplate="%{text:.1f}%",
+            textposition="outside",
+        )
+
+        fig.update_layout(
+            template="plotly_white",
+            height=500,
+        )
+
+        st.plotly_chart(
+            fig,
+            use_container_width=True,
+        )
+
+        st.dataframe(
+            region.style.format(
+                {
+                    "Target": "₹{:,.2f}",
+                    "Current_Achievement": "₹{:,.2f}",
+                    "Projected_NS": "₹{:,.2f}",
+                    "Achievement %": "{:.1f}%",
+                    "RM_Count": "{:,.0f}",
+                }
+            ),
+            use_container_width=True,
+            hide_index=True,
+        )
+
+    # ========================================================
+    # ZONE PERFORMANCE
+    # ========================================================
+    if "ZONE" in scenario_df.columns:
+        st.subheader(
+            "Zone-wise Performance"
+        )
+
+        zone = (
+            scenario_df
+            .groupby("ZONE", dropna=False)
+            .agg(
+                Target=("FY26 Target", "sum"),
+                Projected_NS=(
+                    "Projected Final NS",
+                    "sum",
+                ),
+                RM_Count=(
+                    "FY26 Target",
+                    "count",
+                ),
+            )
+            .reset_index()
+        )
+
+        zone["Achievement %"] = np.where(
+            zone["Target"] > 0,
+            zone["Projected_NS"]
+            / zone["Target"]
+            * 100,
+            0,
+        )
+
+        st.dataframe(
+            zone.style.format(
+                {
+                    "Target": "₹{:,.2f}",
+                    "Projected_NS": "₹{:,.2f}",
+                    "Achievement %": "{:.1f}%",
+                    "RM_Count": "{:,.0f}",
+                }
+            ),
+            use_container_width=True,
+            hide_index=True,
+        )
+
+    # ========================================================
+    # TOP / BOTTOM TABLE
+    # ========================================================
+    st.subheader(
+        "Top and Bottom RMs"
+    )
+
+    if "Employee Name" in scenario_df.columns:
+        cols = [
+            "Employee Name",
+            "FY26 Target",
+            "Current Achievement",
+            "Projected Final NS",
+            "Projected Achievement %",
+            "Revenue Contribution %",
+        ]
+
+        cols = [
+            c
+            for c in cols
+            if c in scenario_df.columns
+        ]
+
+        top = scenario_df.nlargest(
+            10,
+            "Projected Achievement %",
+        )[cols]
+
+        bottom = scenario_df.nsmallest(
+            10,
+            "Projected Achievement %",
+        )[cols]
+
+        col1, col2 = st.columns(2)
+
+        with col1:
+            st.markdown("### 🏆 Top 10 RMs")
+
+            st.dataframe(
+                top.style.format(
+                    {
+                        "FY26 Target": "₹{:,.2f}",
+                        "Current Achievement": "₹{:,.2f}",
+                        "Projected Final NS": "₹{:,.2f}",
+                        "Projected Achievement %": "{:.1f}%",
+                        "Revenue Contribution %": "{:.2f}%",
+                    }
+                ),
+                use_container_width=True,
+                hide_index=True,
+            )
+
+        with col2:
+            st.markdown("### ⚠️ Bottom 10 RMs")
+
+            st.dataframe(
+                bottom.style.format(
+                    {
+                        "FY26 Target": "₹{:,.2f}",
+                        "Current Achievement": "₹{:,.2f}",
+                        "Projected Final NS": "₹{:,.2f}",
+                        "Projected Achievement %": "{:.1f}%",
+                        "Revenue Contribution %": "{:.2f}%",
+                    }
+                ),
+                use_container_width=True,
+                hide_index=True,
+            )
+
+
+# ============================================================
+# MAIN
+# ============================================================
+
+def main():
+    st.sidebar.title("RM Retail Sales")
+
+    st.sidebar.markdown(
+        """
+### 📊 Scenario Dashboard
+
+Upload the Excel workbook containing:
+
+**RM Retail Sales**
+
+The application will automatically
+read only this sheet.
+"""
+    )
+
+    uploaded_file = st.sidebar.file_uploader(
+        "Upload Excel Workbook",
+        type=[
+            "xlsx",
+            "xls",
+            "xlsb",
+        ],
+    )
+
+    if uploaded_file is None:
+        st.title(
+            "📊 RM Retail Sales Scenario Dashboard"
+        )
+
+        st.info(
+            "Please upload the Excel workbook "
+            "containing the 'RM Retail Sales' sheet."
+        )
+
+        st.markdown(
+            """
+### Required columns
+
+The dashboard requires:
+
+- `FY 26 TGT EQ NS`
+- `Equity NS Ach YTD June`
+
+Recommended:
+
+- `Employee Name`
+- `ZONE`
+- `REGION`
+- `EM City`
+- `MKT TYPE`
+
+### Calculation
+
+**Current Monthly Run Rate**
+
+`Equity NS Ach YTD June / 3`
+
+**Projected Incremental NS**
+
+`Current Monthly Run Rate × Projection Months`
+
+**Projected Final NS**
+
+`YTD June Achievement + Projected Incremental NS`
+"""
+        )
+
+        return
+
+    # --------------------------------------------------------
+    # LOAD DATA
+    # --------------------------------------------------------
+    try:
+        df = load_excel(uploaded_file)
+    except Exception as e:
+        st.error(
+            f"Unable to read Excel file:\n\n{e}"
+        )
+        return
+
+    # --------------------------------------------------------
+    # FIND REQUIRED COLUMNS
+    # --------------------------------------------------------
+    target_column = find_column(
+        df,
+        TARGET_COL,
+    )
+
+    achievement_column = find_column(
+        df,
+        JUNE_ACH_COL,
+    )
+
+    if target_column is None:
+        st.error(
+            f"Required column '{TARGET_COL}' "
+            "was not found."
+        )
+
+        st.write(
+            "Columns found:",
+            list(df.columns),
+        )
+
+        return
+
+    if achievement_column is None:
+        st.error(
+            f"Required column '{JUNE_ACH_COL}' "
+            "was not found."
+        )
+
+        st.write(
+            "Columns found:",
+            list(df.columns),
+        )
+
+        return
+
+    # --------------------------------------------------------
+    # RENAME REQUIRED COLUMNS
+    # --------------------------------------------------------
+    df = df.rename(
+        columns={
+            target_column: TARGET_COL,
+            achievement_column: JUNE_ACH_COL,
+        }
+    )
+
+    # --------------------------------------------------------
+    # REMOVE INVALID RECORDS
+    # --------------------------------------------------------
+    df[TARGET_COL] = numeric_series(
+        df,
+        TARGET_COL,
+    )
+
+    df[JUNE_ACH_COL] = numeric_series(
+        df,
+        JUNE_ACH_COL,
+    )
+
+    # Keep rows where at least target or achievement exists
+    df = df[
+        (df[TARGET_COL] != 0)
+        | (df[JUNE_ACH_COL] != 0)
+    ].copy()
+
+    # --------------------------------------------------------
+    # PAGE NAVIGATION
+    # --------------------------------------------------------
+    page = st.sidebar.radio(
+        "Dashboard Page",
+        [
+            "Scenario Dashboard",
+            "Analytics & Visualizations",
+        ],
+    )
+
+    st.sidebar.markdown("---")
+
+    st.sidebar.write(
+        f"**Sheet:** {SHEET_NAME}"
+    )
+
+    st.sidebar.write(
+        f"**RMs loaded:** {len(df):,}"
+    )
+
+    # --------------------------------------------------------
+    # PAGE
+    # --------------------------------------------------------
+    if page == "Scenario Dashboard":
+        page_scenario_dashboard(df)
+    else:
+        page_analytics(df)
+
+
+if __name__ == "__main__":
+    main()
